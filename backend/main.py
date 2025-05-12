@@ -1,3 +1,4 @@
+from backend.core.security import limiter, JWTBearer
 from fastapi import FastAPI, HTTPException, Depends, status
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -225,3 +226,11 @@ def generate_qr_code(patient_id: int, current_user: User = Depends(get_current_u
     buffer.seek(0)
 
     return StreamingResponse(buffer, media_type="image/png")
+
+
+security = JWTBearer()
+
+
+@app.get("/protected")
+async def protected_route(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    return {"message": "Secure endpoint"}
