@@ -2,14 +2,11 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
-# Remove all EmailStr usage to avoid email-validator dependency
+# Authentication Schemas
 
 
 class UserBase(BaseModel):
     email: str
-
-    class Config:
-        from_attributes = True  # Updated from orm_mode in Pydantic v2
 
 
 class UserCreate(UserBase):
@@ -21,13 +18,22 @@ class UserLogin(BaseModel):
     email: str
     password: str
 
+# Keep both names for compatibility
 
-class User(UserBase):
+
+class UserResponse(UserBase):
     id: int
     name: str
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Alias for backward compatibility
+User = UserResponse
 
 
 class Token(BaseModel):
@@ -37,6 +43,10 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+# --------------------------
+# Patient Management Schemas
+# --------------------------
 
 
 class PatientBase(BaseModel):
@@ -51,12 +61,19 @@ class PatientCreate(PatientBase):
     pass
 
 
-class Patient(PatientBase):
+class PatientResponse(PatientBase):
     id: int
     qr_code: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     creator_id: int
+
+    class Config:
+        from_attributes = True
+
+# --------------------------
+# Medical Records Schemas
+# --------------------------
 
 
 class RecordBase(BaseModel):
@@ -71,10 +88,17 @@ class RecordCreate(RecordBase):
     patient_id: int
 
 
-class Record(RecordBase):
+class RecordResponse(RecordBase):
     id: int
     created_at: datetime
     updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# --------------------------
+# Appointment Schemas
+# --------------------------
 
 
 class AppointmentBase(BaseModel):
@@ -89,16 +113,29 @@ class AppointmentCreate(AppointmentBase):
     doctor_id: int
 
 
-class Appointment(AppointmentBase):
+class AppointmentResponse(AppointmentBase):
     id: int
     created_at: datetime
     updated_at: datetime
 
+    class Config:
+        from_attributes = True
 
-class PatientWithRecords(Patient):
-    records: List[Record] = []
-    appointments: List[Appointment] = []
+# --------------------------
+# Combined Response Schemas
+# --------------------------
 
 
-class UserWithPatients(User):
-    patients: List[Patient] = []
+class PatientWithRecords(PatientResponse):
+    records: List[RecordResponse] = []
+    appointments: List[AppointmentResponse] = []
+
+
+class UserWithPatients(UserResponse):
+    patients: List[PatientResponse] = []
+
+
+# Backward compatibility aliases
+Patient = PatientResponse
+Record = RecordResponse
+Appointment = AppointmentResponse
