@@ -5,7 +5,17 @@ import { useRouter } from 'next/navigation'
 import axios from 'axios'
 import QRCode from 'react-qr-code'
 import { Html5QrcodeScanner } from 'html5-qrcode'
-import React from 'react'
+import { openDB } from 'idb'
+
+// Initialize IndexedDB
+const initDB = async () => {
+    return openDB('CareChainDB', 1, {
+        upgrade(db) {
+            db.createObjectStore('patients', { keyPath: 'id' })
+            db.createObjectStore('pending', { keyPath: 'id' })
+        },
+    })
+}
 
 export default function DashboardPage() {
     const [searchTerm, setSearchTerm] = useState('')
@@ -19,24 +29,114 @@ export default function DashboardPage() {
     })
     const [patients, setPatients] = useState([])
     const [token, setToken] = useState('')
+    const [isOnline, setIsOnline] = useState(true)
+    const [syncStatus, setSyncStatus] = useState('up-to-date')
     const router = useRouter()
 
     useEffect(() => {
         const storedToken = localStorage.getItem('auth')
+        if (!storedToken) {
+            router.push('/login')
+        }
         setToken(storedToken)
-    }, [])
+
+        // Set up online/offline detection
+        const handleOnline = () => {
+            setIsOnline(true)
+            syncPendingPatients()
+        }
+        const handleOffline = () => setIsOnline(false)
+
+        window.addEventListener('online', handleOnline)
+        window.addEventListener('offline', handleOffline)
+        setIsOnline(navigator.onLine)
+
+        return () => {
+            window.removeEventListener('online', handleOnline)
+            window.removeEventListener('offline', handleOffline)
+        }
+    }, [router])
 
     useEffect(() => {
         if (token) {
-            axios.get('http://127.0.0.1:8000/patients', {
+            fetchPatients()
+        }
+    }, [token])
+
+    const fetchPatients = async () => {
+        try {
+            const response = await axios.get('http://127.0.0.1:8000/patients', {
                 headers: {
                     Authorization: `Bearer ${token}`
                 }
             })
-                .then(response => setPatients(response.data))
-                .catch(error => console.error('Error fetching patients:', error))
+            setPatients(response.data)
+
+            // Cache in IndexedDB
+            const db = await initDB()
+            const tx = db.transaction('patients', 'readwrite')
+            await Promise.all(
+                response.data.map(patient =>
+                    tx.objectStore('patients').put(patient)
+                )
+            )
+        } catch (error) {
+            console.error('Online fetch failed, loading from cache:', error)
+            try {
+                const db = await initDB()
+                const cached = await db.getAll('patients')
+                setPatients(cached)
+            } catch (dbError) {
+                console.error('Failed to load from cache:', dbError)
+            }
         }
-    }, [token])
+    }
+
+    const syncPendingPatients = async () => {
+        if (!isOnline) return
+
+        try {
+            setSyncStatus('syncing')
+            const db = await initDB()
+            const pending = await db.getAll('pending')
+
+            if (pending.length === 0) {
+                setSyncStatus('up-to-date')
+                return
+            }
+
+            for (const patient of pending) {
+                try {
+                    const response = await axios.post(
+                        'http://127.0.0.1:8000/patients',
+                        {
+                            fullName: patient.fullName,
+                            age: Number(patient.age),
+                            condition: patient.condition
+                        },
+                        {
+                            headers: {
+                                Authorization: `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        }
+                    )
+
+                    // Remove from pending and add to patients
+                    await db.delete('pending', patient.id)
+                    setPatients(prev => [...prev, response.data])
+                } catch (syncError) {
+                    console.error('Failed to sync patient:', syncError)
+                    setSyncStatus('error')
+                    break // Stop on first error
+                }
+            }
+            setSyncStatus('up-to-date')
+        } catch (error) {
+            console.error('Error syncing pending patients:', error)
+            setSyncStatus('error')
+        }
+    }
 
     const handleLogout = () => {
         localStorage.removeItem('auth')
@@ -48,19 +148,54 @@ export default function DashboardPage() {
         setNewPatient(prev => ({ ...prev, [name]: value }))
     }
 
-    const handlePatientSubmit = (e) => {
+    const handlePatientSubmit = async (e) => {
         e.preventDefault()
-        axios.post('http://127.0.0.1:8000/patients', newPatient, {
-            headers: {
-                Authorization: `Bearer ${token}`
-            }
-        })
-            .then(response => {
-                setPatients(prev => [...prev, response.data])
+
+        if (!isOnline) {
+            try {
+                const db = await initDB()
+                const offlinePatient = {
+                    ...newPatient,
+                    id: Date.now(), // Temp ID
+                    offline: true
+                }
+                await db.add('pending', offlinePatient)
+                setPatients(prev => [...prev, offlinePatient])
                 setShowAddPatientModal(false)
                 setNewPatient({ fullName: '', age: '', condition: '' })
-            })
-            .catch(error => console.error('Error adding patient:', error))
+                alert('Patient saved locally and will sync when online!')
+            } catch (error) {
+                console.error('Error saving offline:', error)
+                alert('Failed to save patient locally')
+            }
+            return
+        }
+
+        try {
+            const response = await axios.post(
+                'http://127.0.0.1:8000/patients',
+                {
+                    ...newPatient,
+                    age: Number(newPatient.age)
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            )
+            setPatients(prev => [...prev, response.data])
+            setShowAddPatientModal(false)
+            setNewPatient({ fullName: '', age: '', condition: '' })
+            alert('Patient added successfully!')
+        } catch (error) {
+            console.error('Error adding patient:', error)
+            alert(`Failed to add patient: ${error.response?.data?.detail || error.message}`)
+            if (error.response?.status === 401) {
+                handleLogout()
+            }
+        }
     }
 
     const handleScanSuccess = (result) => {
@@ -120,6 +255,13 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="absolute bottom-6 left-6 right-6">
+                    <div className="mb-4 text-sm">
+                        Status: {isOnline ? (
+                            <span className="text-green-300">Online{syncStatus !== 'up-to-date' && ` (${syncStatus})`}</span>
+                        ) : (
+                            <span className="text-yellow-300">Offline - Working locally</span>
+                        )}
+                    </div>
                     <button
                         onClick={handleLogout}
                         className="w-full flex items-center justify-center space-x-2 p-3 bg-blue-800 hover:bg-blue-900 rounded-lg transition"
@@ -154,7 +296,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Tab Content */}
-                {activeTab === 'dashboard' && <DashboardHome setShowAddPatientModal={setShowAddPatientModal} />}
+                {activeTab === 'dashboard' && <DashboardHome setShowAddPatientModal={setShowAddPatientModal} isOnline={isOnline} />}
                 {activeTab === 'patients' && <PatientsPage patients={patients} onScanClick={() => setShowQRScanner(true)} downloadQRCode={downloadQRCode} />}
                 {activeTab === 'qr-scanner' && <QRScannerPage onScanSuccess={handleScanSuccess} />}
                 {activeTab === 'appointments' && <AppointmentsPage />}
@@ -165,6 +307,11 @@ export default function DashboardPage() {
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
                         <div className="bg-white p-8 rounded-xl w-full max-w-md">
                             <h2 className="text-2xl font-bold text-black mb-6">Add New Patient</h2>
+                            {!isOnline && (
+                                <div className="mb-4 p-2 bg-yellow-100 text-yellow-800 rounded">
+                                    You're offline. Patient will be saved locally and synced when you're back online.
+                                </div>
+                            )}
                             <form onSubmit={handlePatientSubmit} className="space-y-6">
                                 <div>
                                     <label className="block text-sm font-medium text-black mb-2">Full Name</label>
@@ -187,6 +334,8 @@ export default function DashboardPage() {
                                         value={newPatient.age}
                                         onChange={handlePatientChange}
                                         placeholder="Enter patient's age"
+                                        min="0"
+                                        max="120"
                                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
                                         required
                                     />
@@ -217,7 +366,7 @@ export default function DashboardPage() {
                                         type="submit"
                                         className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
                                     >
-                                        Save
+                                        {isOnline ? 'Save' : 'Save Locally'}
                                     </button>
                                 </div>
                             </form>
@@ -237,7 +386,7 @@ export default function DashboardPage() {
     )
 }
 
-function DashboardHome({ setShowAddPatientModal }) {
+function DashboardHome({ setShowAddPatientModal, isOnline }) {
     return (
         <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -261,6 +410,11 @@ function DashboardHome({ setShowAddPatientModal }) {
                     <button className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-800 transition">
                         Emergency Alert
                     </button>
+                    {!isOnline && (
+                        <span className="flex items-center text-yellow-600">
+                            (Working in offline mode)
+                        </span>
+                    )}
                 </div>
             </div>
 
@@ -277,6 +431,28 @@ function DashboardHome({ setShowAddPatientModal }) {
 }
 
 function PatientsPage({ patients, onScanClick, downloadQRCode }) {
+    const [selectedPatient, setSelectedPatient] = useState(null)
+    const [qrCodeData, setQrCodeData] = useState(null)
+    const token = localStorage.getItem('auth')
+
+    const fetchQRCode = async (patientId) => {
+        try {
+            const response = await axios.get(
+                `http://127.0.0.1:8000/patients/${patientId}/qrcode`,
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                }
+            )
+            setQrCodeData(response.data.qr_code)
+            setSelectedPatient(patientId)
+        } catch (error) {
+            console.error('Error fetching QR code:', error)
+            alert('Failed to generate QR code')
+        }
+    }
+
     return (
         <div className="text-black space-y-6">
             <div className="flex justify-between items-center">
@@ -296,10 +472,17 @@ function PatientsPage({ patients, onScanClick, downloadQRCode }) {
                             <h3 className="text-lg font-semibold">{patient.fullName}</h3>
                             <p>Age: {patient.age}</p>
                             <p>Condition: {patient.condition}</p>
+                            {patient.offline && <p className="text-yellow-600 text-sm">(Pending sync)</p>}
                         </div>
-
-                        <div className="flex flex-col items-center space-y-2">
-                            <div id={`qrcode-${patient.id}`}>
+                        <div className="flex flex-col space-y-2">
+                            <button
+                                onClick={() => fetchQRCode(patient.id)}
+                                className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition"
+                                disabled={patient.offline}
+                            >
+                                {patient.offline ? 'Generate when online' : 'Generate QR Code'}
+                            </button>
+                            <div id={`qrcode-${patient.id}`} className="flex justify-center">
                                 <QRCode
                                     value={`http://localhost:3000/patients/${patient.id}`}
                                     size={128}
@@ -310,7 +493,7 @@ function PatientsPage({ patients, onScanClick, downloadQRCode }) {
                             </div>
                             <button
                                 onClick={() => downloadQRCode(patient.id)}
-                                className="bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 transition text-sm"
+                                className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition"
                             >
                                 Download QR Code
                             </button>
@@ -318,6 +501,40 @@ function PatientsPage({ patients, onScanClick, downloadQRCode }) {
                     </div>
                 ))}
             </div>
+
+            {qrCodeData && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+                    <div className="bg-white p-6 rounded-xl w-full max-w-md">
+                        <h2 className="text-xl font-bold mb-4">Patient QR Code</h2>
+                        <div className="flex flex-col items-center space-y-4">
+                            <img
+                                src={`data:image/png;base64,${qrCodeData}`}
+                                alt="Patient QR Code"
+                                className="w-48 h-48"
+                            />
+                            <div className="flex space-x-3">
+                                <button
+                                    onClick={() => {
+                                        const link = document.createElement('a')
+                                        link.href = `data:image/png;base64,${qrCodeData}`
+                                        link.download = `patient-${selectedPatient}-qrcode.png`
+                                        link.click()
+                                    }}
+                                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                                >
+                                    Download
+                                </button>
+                                <button
+                                    onClick={() => setQrCodeData(null)}
+                                    className="bg-gray-300 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-400 transition"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

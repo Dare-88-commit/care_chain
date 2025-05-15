@@ -12,7 +12,7 @@ export default function LoginPage() {
         rememberMe: false
     })
     const [isLoading, setIsLoading] = useState(false)
-    const [error, setError] = useState('')
+    const [errors, setErrors] = useState({ email: '', password: '', form: '' })
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target
@@ -24,60 +24,63 @@ export default function LoginPage() {
 
     const handleSubmit = async (e) => {
         e.preventDefault()
-        setError('')
+
+        // Reset previous errors
+        setErrors({ email: '', password: '', form: '' })
+
+        // Basic validation
+        if (!form.email.trim()) {
+            setErrors(prev => ({ ...prev, email: 'Email is required' }))
+            return
+        }
+        if (!form.password) {
+            setErrors(prev => ({ ...prev, password: 'Password is required' }))
+            return
+        }
+
         setIsLoading(true)
 
         try {
-            const response = await fetch('http://127.0.0.1:8000/auth/signup', {
+            const response = await fetch('http://localhost:8000/auth/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    email: form.email,
+                    username: form.email,
                     password: form.password
                 }),
             })
 
-            try {
-                const response = await fetch("http://127.0.0.1:8000/auth/login", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({ email, password })
-                });
-
-                const data = await response.json().catch(() => null); // Safely try to parse JSON
-
-                if (!response.ok) {
-                    const errorMessage = data?.detail || 'Login failed';
-                    throw new Error(errorMessage);
-                }
-
-                // Handle successful login (e.g. save token, redirect)
-                console.log(data.token);
-            } catch (error) {
-                console.error("Login error:", error.message);
-                alert(error.message);
-            }
-
-
             const data = await response.json()
 
-            // Store the token
-            if (form.rememberMe) {
-                localStorage.setItem('authToken', data.token)
-            } else {
-                sessionStorage.setItem('authToken', data.token)
+            if (!response.ok) {
+                if (data.detail) {
+                    if (Array.isArray(data.detail)) {
+                        const backendErrors = {}
+                        data.detail.forEach(err => {
+                            if (err.loc.includes('username')) {
+                                backendErrors.email = err.msg
+                            } else if (err.loc.includes('password')) {
+                                backendErrors.password = err.msg
+                            }
+                        })
+                        setErrors(prev => ({ ...prev, ...backendErrors }))
+                    } else {
+                        setErrors(prev => ({ ...prev, form: data.detail }))
+                    }
+                } else {
+                    setErrors(prev => ({ ...prev, form: 'Login failed. Please try again.' }))
+                }
+                return
             }
 
-            // Redirect to dashboard
+            const storage = form.rememberMe ? localStorage : sessionStorage
+            storage.setItem('auth', data.access_token)
             router.push('/dashboard')
 
         } catch (err) {
-            setError(err.message || 'Login failed. Please check your credentials.')
-            console.error('Login error:', err)
+            setErrors(prev => ({ ...prev, form: 'Network error. Please try again.' }))
         } finally {
             setIsLoading(false)
         }
@@ -112,10 +115,12 @@ export default function LoginPage() {
                         <h2 className="text-xl text-black mt-2">Welcome Back</h2>
                     </div>
 
-                    {/* Error Message */}
-                    {error && (
-                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-                            {error}
+                    {/* Error Messages */}
+                    {(errors.form || errors.email || errors.password) && (
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded space-y-1">
+                            {errors.form && <div>{errors.form}</div>}
+                            {errors.email && <div>{errors.email}</div>}
+                            {errors.password && <div>{errors.password}</div>}
                         </div>
                     )}
 

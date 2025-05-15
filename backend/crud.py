@@ -46,11 +46,15 @@ def authenticate_user(db: Session, email: str, password: str):
 # --------------------------
 
 
-def create_patient(db: Session, patient: schemas.PatientCreate, creator_id: int):
-    """Create a new patient record"""
+def create_patient(db: Session, patient: schemas.PatientCreate, user_id: int):
+    """Create a new patient record with risk checks"""
+    risk_check = check_patient_risks(patient.dict())  # Perform risk check
+
     db_patient = models.Patient(
         **patient.dict(),
-        creator_id=creator_id,
+        creator_id=user_id,
+        symptom_flags=", ".join(risk_check['warnings']),
+        is_critical=risk_check['is_risky'],
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
     )
@@ -113,5 +117,30 @@ def create_patient_record(db: Session, record: schemas.RecordCreate, patient_id:
 
 def get_patient_records(db: Session, patient_id: int):
     """Get all medical records for a specific patient"""
-    return db.query(models.MedicalRecord).filter(
-        models.MedicalRecord.patient_id == patient_id).all()
+    return db.query(models.MedicalRecord).filter(models.MedicalRecord.patient_id == patient_id).all()
+
+# --------------------------
+# Risk Check Logic
+# --------------------------
+
+
+def check_patient_risks(patient_data: dict):
+    """Rule-based symptom checker"""
+    warnings = []
+
+    if patient_data.get('age', 0) > 70:
+        warnings.append("Elderly patient - higher risk")
+
+    if 'fever' in patient_data.get('condition', '').lower():
+        warnings.append("Fever detected")
+
+    if 'critical' in patient_data.get('condition', '').lower():
+        severity = 'high'
+    else:
+        severity = 'medium'
+
+    return {
+        'is_risky': bool(warnings),
+        'warnings': warnings,
+        'severity': severity
+    }

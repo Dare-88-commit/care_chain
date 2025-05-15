@@ -1,7 +1,11 @@
+from passlib.context import CryptContext
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text, DateTime
 from sqlalchemy.orm import relationship
 from .database import Base
 from datetime import datetime
+
+# Password hashing context
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class User(Base):
@@ -16,31 +20,36 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow,
                         onupdate=datetime.utcnow)
 
-    # Relationship to patients (if users can have associated patients)
+    # Relationships
     patients = relationship("Patient", back_populates="creator")
+    appointments = relationship("Appointment", back_populates="doctor")
+
+    def verify_password(self, plain_password: str):
+        return pwd_context.verify(plain_password, self.hashed_password)
 
 
 class Patient(Base):
     __tablename__ = "patients"
 
     id = Column(Integer, primary_key=True, index=True)
-    # Changed from 'name' to match frontend
     fullName = Column(String(100), nullable=False)
     age = Column(Integer, nullable=False)
-    gender = Column(String(10))  # Added gender field
-    blood_type = Column(String(5))  # Added blood type
+    gender = Column(String(10))
+    blood_type = Column(String(5))
     condition = Column(Text, nullable=False)
-    qr_code = Column(String(255))  # For storing QR code data
+    allergies = Column(Text)  # Critical field for allergies
+    qr_code = Column(String(255))
+    last_sync = Column(DateTime)  # For offline sync tracking
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow,
                         onupdate=datetime.utcnow)
 
-    # Relationship to user who created this patient
+    # Foreign key relationship
     creator_id = Column(Integer, ForeignKey("users.id"))
     creator = relationship("User", back_populates="patients")
 
-    # Relationship to medical records
     records = relationship("MedicalRecord", back_populates="patient")
+    appointments = relationship("Appointment", back_populates="patient")
 
 
 class MedicalRecord(Base):
@@ -50,13 +59,15 @@ class MedicalRecord(Base):
     diagnosis = Column(Text, nullable=False)
     treatment = Column(Text)
     notes = Column(Text)
-    symptoms = Column(Text)  # For AI symptom analysis
+    symptoms = Column(Text)
     severity = Column(String(20))  # critical, urgent, normal, etc.
+    # Critical flag for medical records
+    is_critical = Column(Boolean, default=False)
+    symptom_flags = Column(String(100))  # Stores risk warnings
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow,
                         onupdate=datetime.utcnow)
 
-    # Relationship to patient
     patient_id = Column(Integer, ForeignKey("patients.id"))
     patient = relationship("Patient", back_populates="records")
 
@@ -74,9 +85,8 @@ class Appointment(Base):
     updated_at = Column(DateTime, default=datetime.utcnow,
                         onupdate=datetime.utcnow)
 
-    # Relationships
     patient_id = Column(Integer, ForeignKey("patients.id"))
-    patient = relationship("Patient")
+    patient = relationship("Patient", back_populates="appointments")
 
     doctor_id = Column(Integer, ForeignKey("users.id"))
-    doctor = relationship("User")
+    doctor = relationship("User", back_populates="appointments")
