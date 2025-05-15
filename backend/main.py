@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from backend.database import SessionLocal, engine
+from backend import models, schemas, crud
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.responses import StreamingResponse
@@ -8,34 +10,40 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 import qrcode
 import io
+from uuid import uuid4
 from typing import Optional, List
+import os
+from dotenv import load_dotenv
+from functools import wraps
 
-from backend import models, schemas, crud
-from backend.database import SessionLocal, engine
+# Load environment variables
+load_dotenv()
 
 # Create tables
 models.Base.metadata.create_all(bind=engine)
 
-# App init
-app = FastAPI()
+# Initialize app
+app = FastAPI(title="CareChain API", version="1.0.0")
 
-# CORS
+# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=os.getenv(
+        "ALLOWED_ORIGINS", "http://localhost:3000").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Security
-SECRET_KEY = "your-secret-key"  # Change this to environment variable
+# Security Configuration
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))  # 24h default
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-# DB Dependency
+# Database Dependency
 
 
 def get_db():
@@ -45,15 +53,17 @@ def get_db():
     finally:
         db.close()
 
-# Auth Helpers
+# Password Helpers
 
 
-def verify_password(plain_password, hashed_password):
+def verify_password(plain_password: str, hashed_password: str):
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def get_password_hash(password):
+def get_password_hash(password: str):
     return pwd_context.hash(password)
+
+# JWT Token Handling
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -61,8 +71,6 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-# Auth Helper to get the current user
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
@@ -78,20 +86,42 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
             raise credentials_exception
     except JWTError:
         raise credentials_exception
+
     user = crud.get_user_by_email(db, email=email)
-    if user is None:
+    if not user:
         raise credentials_exception
     return user
 
-# Auth Routes
+# Role-Based Access Control
+
+
+def requires_role(required_role: str):
+    def decorator(route_func):
+        @wraps(route_func)
+        async def wrapper(*args, current_user: models.User = Depends(get_current_user), **kwargs):
+            if current_user.role != required_role:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Insufficient permissions"
+                )
+            return await route_func(*args, current_user=current_user, **kwargs)
+        return wrapper
+    return decorator
+
+# Authentication Routes
 
 
 @app.post("/auth/signup", response_model=schemas.User)
 def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    if crud.get_user_by_email(db, user.email):
+    db_user = crud.get_user_by_email(db, email=user.email)
+    if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
-    user.password = get_password_hash(user.password)
-    return crud.create_user(db=db, user=user)
+
+    hashed_password = get_password_hash(user.password)
+    try:
+        return crud.create_user(db=db, user=user, hashed_password=hashed_password)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/auth/login")
@@ -101,9 +131,10 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(
             status_code=401, detail="Incorrect email or password"
         )
+
     access_token = create_access_token(
-        data={"sub": user.email},
-        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        data={"sub": user.email, "role": user.role},
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -116,10 +147,13 @@ def create_patient(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    return crud.create_patient(db=db, patient=patient, user_id=current_user.id)
+    try:
+        return crud.create_patient(db=db, patient=patient, user_id=current_user.id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/patients", response_model=list[schemas.Patient])
+@app.get("/patients", response_model=List[schemas.Patient])
 def read_patients(
     skip: int = 0,
     limit: int = 100,
@@ -127,43 +161,6 @@ def read_patients(
     current_user: models.User = Depends(get_current_user)
 ):
     return crud.get_patients(db, skip=skip, limit=limit)
-
-
-@app.get("/patients/{patient_id}", response_model=schemas.Patient)
-def read_patient(
-    patient_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    patient = crud.get_patient(db, patient_id=patient_id)
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
-    return patient
-
-
-@app.put("/patients/{patient_id}", response_model=schemas.Patient)
-def update_patient(
-    patient_id: int,
-    patient: schemas.PatientCreate,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    updated = crud.update_patient(db, patient_id=patient_id, patient=patient)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Patient not found")
-    return updated
-
-
-@app.delete("/patients/{patient_id}", response_model=schemas.Patient)
-def delete_patient(
-    patient_id: int,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    deleted = crud.delete_patient(db, patient_id=patient_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Patient not found")
-    return deleted
 
 # QR Code Generation
 
@@ -176,45 +173,117 @@ def generate_qr_code(
 ):
     patient = crud.get_patient(db, patient_id=patient_id)
     if not patient:
-        raise HTTPException(404, "Patient not found")
+        raise HTTPException(status_code=404, detail="Patient not found")
 
-    # Minimal critical data for offline use
+    # Generate time-limited token
+    qr_token = str(uuid4())
     qr_data = {
-        "id": patient.id,
-        "name": patient.name,  # Assuming 'name' is the correct field in the model
-        "blood_type": patient.blood_type,
-        "allergies": patient.allergies
+        "patient_id": patient.id,
+        "token": qr_token,
+        "exp": (datetime.utcnow() + timedelta(hours=1)).isoformat()
     }
 
+    # Store token (simplified - consider Redis in production)
+    patient.qr_token = qr_token
+    db.commit()
+
+    # Generate QR image
     qr = qrcode.make(qr_data)
     buffer = io.BytesIO()
     qr.save(buffer, format="PNG")
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="image/png")
 
-# Patient Synchronization (Offline Sync)
+# QR Token Validation Endpoint
 
 
-@app.post("/patients/sync")
+@app.get("/patients/qr/{token}", response_model=schemas.Patient)
+def read_patient_via_qr(
+    token: str,
+    db: Session = Depends(get_db)
+):
+    patient = db.query(models.Patient).filter(
+        models.Patient.qr_token == token).first()
+    if not patient:
+        raise HTTPException(
+            status_code=404, detail="Invalid or expired QR token"
+        )
+    return patient
+
+# Offline Sync Endpoint
+
+
+@app.post("/patients/sync", response_model=List[schemas.Patient])
 def sync_patients(
-    patients: List[schemas.PatientCreate],
+    patients: List[schemas.PatientSync],
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    """For offline sync"""
     synced = []
     for patient in patients:
+        db_patient = crud.get_patient(db, patient.id)
+
+        # Conflict resolution: Latest update wins
+        if db_patient:
+            if patient.updated_at > db_patient.updated_at:
+                updated = crud.update_patient(
+                    db, patient_id=patient.id, patient=patient)
+                synced.append(updated)
+        else:
+            new_patient = crud.create_patient(
+                db, patient, user_id=current_user.id)
+            synced.append(new_patient)
+
+    return synced
+
+# Access Logging Middleware
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    response = await call_next(request)
+
+    if request.url.path.startswith("/patients/") and request.method in ["GET", "POST", "PUT", "DELETE"]:
+        db = SessionLocal()
         try:
-            db_patient = crud.create_patient(db, patient, current_user.id)
-            synced.append(db_patient)
-        except Exception as e:
-            raise HTTPException(
-                status_code=400, detail=f"Failed to sync patient: {str(e)}")
-    return {"synced": len(synced)}
+            auth = request.headers.get("authorization")
+            if auth:
+                token = auth.replace("Bearer ", "")
+                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+                user = crud.get_user_by_email(db, email=payload.get("sub"))
+
+                if user:
+                    patient_id = request.path_params.get("patient_id")
+                    if patient_id:
+                        log = models.AccessLog(
+                            user_id=user.id,
+                            patient_id=int(patient_id),
+                            action=request.method.lower(),
+                            ip_address=request.client.host
+                        )
+                        db.add(log)
+                        db.commit()
+        except Exception:
+            pass  # Don't fail the request if logging fails
+        finally:
+            db.close()
+
+    return response
+
+# Health Check
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "OK", "timestamp": datetime.utcnow()}
 
 # Root Endpoint
 
 
 @app.get("/")
 def root():
-    return {"message": "Welcome to CareChain API"}
+    return {
+        "message": "CareChain API",
+        "docs": "/docs",
+        "version": "1.0.0"
+    }

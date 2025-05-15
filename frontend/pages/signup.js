@@ -16,18 +16,21 @@ export default function SignUpPage() {
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState('')
 
+    // Handle form input changes
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target
-        setForm((prev) => ({
+        setForm(prev => ({
             ...prev,
             [name]: type === 'checkbox' ? checked : value,
         }))
     }
 
+    // Submit handler with enhanced error handling
     const handleSubmit = async (e) => {
         e.preventDefault()
         setError('')
 
+        // Client-side validation
         if (!form.agree) {
             setError('You must agree to the Terms and Conditions.')
             return
@@ -38,10 +41,16 @@ export default function SignUpPage() {
             return
         }
 
+        if (form.password.length < 8) {
+            setError('Password must be at least 8 characters')
+            return
+        }
+
         setIsLoading(true)
 
         try {
-            const response = await fetch('http://127.0.0.1:8000/auth/signup', {
+            // API request to FastAPI backend
+            const response = await fetch('http://localhost:8000/auth/signup', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -53,22 +62,21 @@ export default function SignUpPage() {
                 }),
             })
 
+            // Handle HTTP errors
             if (!response.ok) {
                 const errorData = await response.json()
                 throw new Error(errorData.detail || 'Signup failed')
             }
 
+            // Success case
             const data = await response.json()
-
-            // Store the token in localStorage
-            localStorage.setItem('authToken', data.token)
-
-            // Redirect to dashboard
-            router.push('/dashboard')
+            localStorage.setItem('authToken', data.access_token) // Store token
+            router.push('/dashboard') // Redirect to dashboard
 
         } catch (err) {
-            setError(err.message || 'Signup failed. Please try again.')
+            // Network/backend errors
             console.error('Signup error:', err)
+            setError(err.message || 'Signup failed. Please try again.')
         } finally {
             setIsLoading(false)
         }
@@ -83,6 +91,7 @@ export default function SignUpPage() {
                     alt="Doctor Illustration"
                     width={450}
                     height={450}
+                    priority
                 />
             </div>
 
@@ -97,6 +106,7 @@ export default function SignUpPage() {
                                 alt="CareChain Logo"
                                 width={50}
                                 height={50}
+                                priority
                             />
                             <h1 className="text-3xl font-bold text-black">CareChain</h1>
                         </div>
@@ -112,8 +122,11 @@ export default function SignUpPage() {
 
                     {/* Sign Up Form */}
                     <form onSubmit={handleSubmit} className="space-y-6">
+                        {/* Name Field */}
                         <div>
-                            <label className="block text-sm font-medium text-black mb-1">Full Name</label>
+                            <label className="block text-sm font-medium text-black mb-1">
+                                Full Name
+                            </label>
                             <input
                                 type="text"
                                 name="name"
@@ -122,11 +135,15 @@ export default function SignUpPage() {
                                 required
                                 className="mt-1 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
                                 placeholder="Enter your full name"
+                                minLength={2}
                             />
                         </div>
 
+                        {/* Email Field */}
                         <div>
-                            <label className="block text-sm font-medium text-black mb-1">Email address</label>
+                            <label className="block text-sm font-medium text-black mb-1">
+                                Email address
+                            </label>
                             <input
                                 type="email"
                                 name="email"
@@ -138,8 +155,11 @@ export default function SignUpPage() {
                             />
                         </div>
 
+                        {/* Password Field */}
                         <div>
-                            <label className="block text-sm font-medium text-black mb-1">Password</label>
+                            <label className="block text-sm font-medium text-black mb-1">
+                                Password
+                            </label>
                             <input
                                 type="password"
                                 name="password"
@@ -152,8 +172,11 @@ export default function SignUpPage() {
                             />
                         </div>
 
+                        {/* Confirm Password Field */}
                         <div>
-                            <label className="block text-sm font-medium text-black mb-1">Confirm Password</label>
+                            <label className="block text-sm font-medium text-black mb-1">
+                                Confirm Password
+                            </label>
                             <input
                                 type="password"
                                 name="confirmPassword"
@@ -165,6 +188,7 @@ export default function SignUpPage() {
                             />
                         </div>
 
+                        {/* Terms Checkbox */}
                         <div className="flex items-center">
                             <input
                                 type="checkbox"
@@ -181,15 +205,18 @@ export default function SignUpPage() {
                             </label>
                         </div>
 
+                        {/* Submit Button */}
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className={`w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                            className={`w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors ${isLoading ? 'opacity-70 cursor-not-allowed' : ''
+                                }`}
                         >
                             {isLoading ? 'Signing Up...' : 'Sign Up'}
                         </button>
                     </form>
 
+                    {/* Login Link */}
                     <p className="text-center text-sm text-black mt-6">
                         Already have an account?{' '}
                         <Link href="/login" className="text-blue-600 hover:underline font-medium">

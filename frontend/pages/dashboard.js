@@ -6,6 +6,7 @@ import axios from 'axios'
 import QRCode from 'react-qr-code'
 import { Html5QrcodeScanner } from 'html5-qrcode'
 import { openDB } from 'idb'
+import { toast } from 'react-hot-toast'
 
 // Initialize IndexedDB
 const initDB = async () => {
@@ -25,7 +26,9 @@ export default function DashboardPage() {
     const [newPatient, setNewPatient] = useState({
         fullName: '',
         age: '',
-        condition: ''
+        condition: '',
+        severity: 'medium',
+        warnings: []
     })
     const [patients, setPatients] = useState([])
     const [token, setToken] = useState('')
@@ -86,8 +89,10 @@ export default function DashboardPage() {
                 const db = await initDB()
                 const cached = await db.getAll('patients')
                 setPatients(cached)
+                toast.error('Using cached data - offline mode')
             } catch (dbError) {
                 console.error('Failed to load from cache:', dbError)
+                toast.error('Failed to load patient data')
             }
         }
     }
@@ -105,6 +110,7 @@ export default function DashboardPage() {
                 return
             }
 
+            const synced = []
             for (const patient of pending) {
                 try {
                     const response = await axios.post(
@@ -112,7 +118,9 @@ export default function DashboardPage() {
                         {
                             fullName: patient.fullName,
                             age: Number(patient.age),
-                            condition: patient.condition
+                            condition: patient.condition,
+                            severity: patient.severity || 'medium',
+                            warnings: patient.warnings || []
                         },
                         {
                             headers: {
@@ -124,17 +132,25 @@ export default function DashboardPage() {
 
                     // Remove from pending and add to patients
                     await db.delete('pending', patient.id)
-                    setPatients(prev => [...prev, response.data])
+                    synced.push(response.data)
                 } catch (syncError) {
                     console.error('Failed to sync patient:', syncError)
                     setSyncStatus('error')
+                    toast.error(`Failed to sync patient: ${patient.fullName}`)
                     break // Stop on first error
                 }
             }
+
+            if (synced.length > 0) {
+                toast.success(`Synced ${synced.length} patient(s)!`)
+                setPatients(prev => [...prev.filter(p => !p.offline), ...synced])
+            }
+
             setSyncStatus('up-to-date')
         } catch (error) {
             console.error('Error syncing pending patients:', error)
             setSyncStatus('error')
+            toast.error('Error syncing pending patients')
         }
     }
 
@@ -157,16 +173,23 @@ export default function DashboardPage() {
                 const offlinePatient = {
                     ...newPatient,
                     id: Date.now(), // Temp ID
-                    offline: true
+                    offline: true,
+                    age: Number(newPatient.age)
                 }
                 await db.add('pending', offlinePatient)
                 setPatients(prev => [...prev, offlinePatient])
                 setShowAddPatientModal(false)
-                setNewPatient({ fullName: '', age: '', condition: '' })
-                alert('Patient saved locally and will sync when online!')
+                setNewPatient({
+                    fullName: '',
+                    age: '',
+                    condition: '',
+                    severity: 'medium',
+                    warnings: []
+                })
+                toast.success('Patient saved locally and will sync when online!')
             } catch (error) {
                 console.error('Error saving offline:', error)
-                alert('Failed to save patient locally')
+                toast.error('Failed to save patient locally')
             }
             return
         }
@@ -187,11 +210,17 @@ export default function DashboardPage() {
             )
             setPatients(prev => [...prev, response.data])
             setShowAddPatientModal(false)
-            setNewPatient({ fullName: '', age: '', condition: '' })
-            alert('Patient added successfully!')
+            setNewPatient({
+                fullName: '',
+                age: '',
+                condition: '',
+                severity: 'medium',
+                warnings: []
+            })
+            toast.success('Patient added successfully!')
         } catch (error) {
             console.error('Error adding patient:', error)
-            alert(`Failed to add patient: ${error.response?.data?.detail || error.message}`)
+            toast.error(`Failed to add patient: ${error.response?.data?.detail || error.message}`)
             if (error.response?.status === 401) {
                 handleLogout()
             }
@@ -354,6 +383,35 @@ export default function DashboardPage() {
                                     />
                                 </div>
 
+                                <div>
+                                    <label className="block text-sm font-medium text-black mb-2">Severity</label>
+                                    <select
+                                        name="severity"
+                                        value={newPatient.severity}
+                                        onChange={handlePatientChange}
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+                                    >
+                                        <option value="low">Low</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-black mb-2">Warnings (comma separated)</label>
+                                    <input
+                                        type="text"
+                                        name="warnings"
+                                        value={newPatient.warnings.join(', ')}
+                                        onChange={(e) => setNewPatient(prev => ({
+                                            ...prev,
+                                            warnings: e.target.value.split(',').map(w => w.trim())
+                                        }))}
+                                        placeholder="Important warnings, alerts"
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+                                    />
+                                </div>
+
                                 <div className="flex justify-end space-x-4 pt-4">
                                     <button
                                         type="button"
@@ -435,6 +493,13 @@ function PatientsPage({ patients, onScanClick, downloadQRCode }) {
     const [qrCodeData, setQrCodeData] = useState(null)
     const token = localStorage.getItem('auth')
 
+    // Severity color mapping
+    const severityColors = {
+        high: "bg-red-100 text-red-800",
+        medium: "bg-yellow-100 text-yellow-800",
+        low: "bg-green-100 text-green-800"
+    }
+
     const fetchQRCode = async (patientId) => {
         try {
             const response = await axios.get(
@@ -449,7 +514,7 @@ function PatientsPage({ patients, onScanClick, downloadQRCode }) {
             setSelectedPatient(patientId)
         } catch (error) {
             console.error('Error fetching QR code:', error)
-            alert('Failed to generate QR code')
+            toast.error('Failed to generate QR code')
         }
     }
 
@@ -473,6 +538,13 @@ function PatientsPage({ patients, onScanClick, downloadQRCode }) {
                             <p>Age: {patient.age}</p>
                             <p>Condition: {patient.condition}</p>
                             {patient.offline && <p className="text-yellow-600 text-sm">(Pending sync)</p>}
+
+                            {/* Severity indicator */}
+                            {patient.severity && (
+                                <div className={`mt-2 p-2 rounded text-sm ${severityColors[patient.severity] || 'bg-gray-100 text-gray-800'}`}>
+                                    {patient.warnings?.join(", ") || 'No warnings'}
+                                </div>
+                            )}
                         </div>
                         <div className="flex flex-col space-y-2">
                             <button
