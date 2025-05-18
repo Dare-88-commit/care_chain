@@ -16,7 +16,6 @@ export default function SignUpPage() {
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState('')
 
-    // Handle form input changes
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target
         setForm(prev => ({
@@ -25,7 +24,6 @@ export default function SignUpPage() {
         }))
     }
 
-    // Submit handler with enhanced error handling
     const handleSubmit = async (e) => {
         e.preventDefault()
         setError('')
@@ -49,7 +47,6 @@ export default function SignUpPage() {
         setIsLoading(true)
 
         try {
-            // API request to FastAPI backend
             const response = await fetch('http://localhost:8000/auth/signup', {
                 method: 'POST',
                 headers: {
@@ -58,23 +55,39 @@ export default function SignUpPage() {
                 body: JSON.stringify({
                     name: form.name,
                     email: form.email,
-                    password: form.password
+                    password: form.password,
+                    confirm_password: form.confirmPassword, // Add this line
+                    role: "nurse" // Default role
                 }),
             })
 
-            // Handle HTTP errors
             if (!response.ok) {
                 const errorData = await response.json()
-                throw new Error(errorData.detail || 'Signup failed')
+                console.log('Error response:', errorData) // For debugging
+
+                // Handle different error formats
+                let errorMessage = 'Signup failed'
+                if (typeof errorData === 'string') {
+                    errorMessage = errorData
+                } else if (errorData?.detail) {
+                    if (typeof errorData.detail === 'string') {
+                        errorMessage = errorData.detail
+                    } else if (errorData.detail?.message) {
+                        errorMessage = errorData.detail.message
+                    } else if (Array.isArray(errorData.detail)) {
+                        errorMessage = errorData.detail
+                            .map(err => `${err.loc ? err.loc.join('.') + ': ' : ''}${err.msg}`)
+                            .join('\n')
+                    }
+                }
+
+                throw new Error(errorMessage)
             }
 
             // Success case
-            const data = await response.json()
-            localStorage.setItem('authToken', data.access_token) // Store token
-            router.push('/dashboard') // Redirect to dashboard
+            router.push('/login')
 
         } catch (err) {
-            // Network/backend errors
             console.error('Signup error:', err)
             setError(err.message || 'Signup failed. Please try again.')
         } finally {
@@ -84,7 +97,7 @@ export default function SignUpPage() {
 
     return (
         <div className="flex min-h-screen">
-            {/* Left Side - Illustration */}
+            {/* Left Illustration */}
             <div className="w-2/5 bg-blue-50 hidden md:flex items-center justify-center">
                 <Image
                     src="/images/doctor-illustration2.svg"
@@ -95,10 +108,10 @@ export default function SignUpPage() {
                 />
             </div>
 
-            {/* Right Side - Sign Up Form */}
+            {/* Sign Up Form */}
             <div className="w-full md:w-3/5 bg-white flex flex-col justify-center px-10 py-12">
                 <div className="max-w-md w-full mx-auto space-y-8">
-                    {/* Logo + Heading */}
+                    {/* Logo and Heading */}
                     <div className="flex flex-col items-center">
                         <div className="flex items-center space-x-3">
                             <Image
@@ -113,53 +126,43 @@ export default function SignUpPage() {
                         <h2 className="text-xl text-black mt-2">Create Account</h2>
                     </div>
 
-                    {/* Error Message */}
+                    {/* Error */}
                     {error && (
                         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
                             {error}
                         </div>
                     )}
 
-                    {/* Sign Up Form */}
+                    {/* Form */}
                     <form onSubmit={handleSubmit} className="space-y-6">
-                        {/* Name Field */}
                         <div>
-                            <label className="block text-sm font-medium text-black mb-1">
-                                Full Name
-                            </label>
+                            <label className="block text-sm font-medium text-black mb-1">Full Name</label>
                             <input
                                 type="text"
                                 name="name"
                                 value={form.name}
                                 onChange={handleChange}
                                 required
-                                className="mt-1 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
                                 placeholder="Enter your full name"
-                                minLength={2}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
                             />
                         </div>
 
-                        {/* Email Field */}
                         <div>
-                            <label className="block text-sm font-medium text-black mb-1">
-                                Email address
-                            </label>
+                            <label className="block text-sm font-medium text-black mb-1">Email address</label>
                             <input
                                 type="email"
                                 name="email"
                                 value={form.email}
                                 onChange={handleChange}
                                 required
-                                className="mt-1 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
                                 placeholder="Enter your email"
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
                             />
                         </div>
 
-                        {/* Password Field */}
                         <div>
-                            <label className="block text-sm font-medium text-black mb-1">
-                                Password
-                            </label>
+                            <label className="block text-sm font-medium text-black mb-1">Password</label>
                             <input
                                 type="password"
                                 name="password"
@@ -167,28 +170,24 @@ export default function SignUpPage() {
                                 onChange={handleChange}
                                 required
                                 minLength={8}
-                                className="mt-1 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
                                 placeholder="Create a password (min 8 characters)"
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
                             />
                         </div>
 
-                        {/* Confirm Password Field */}
                         <div>
-                            <label className="block text-sm font-medium text-black mb-1">
-                                Confirm Password
-                            </label>
+                            <label className="block text-sm font-medium text-black mb-1">Confirm Password</label>
                             <input
                                 type="password"
                                 name="confirmPassword"
                                 value={form.confirmPassword}
                                 onChange={handleChange}
                                 required
-                                className="mt-1 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
                                 placeholder="Confirm your password"
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
                             />
                         </div>
 
-                        {/* Terms Checkbox */}
                         <div className="flex items-center">
                             <input
                                 type="checkbox"
@@ -205,18 +204,15 @@ export default function SignUpPage() {
                             </label>
                         </div>
 
-                        {/* Submit Button */}
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className={`w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors ${isLoading ? 'opacity-70 cursor-not-allowed' : ''
-                                }`}
+                            className={`w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
                         >
                             {isLoading ? 'Signing Up...' : 'Sign Up'}
                         </button>
                     </form>
 
-                    {/* Login Link */}
                     <p className="text-center text-sm text-black mt-6">
                         Already have an account?{' '}
                         <Link href="/login" className="text-blue-600 hover:underline font-medium">

@@ -19,7 +19,7 @@ from functools import wraps
 # Load environment variables
 load_dotenv()
 
-# Create tables
+# Create tables (this runs once at app startup)
 models.Base.metadata.create_all(bind=engine)
 
 # Initialize app
@@ -39,7 +39,7 @@ app.add_middleware(
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(
-    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))  # 24h default
+    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -62,6 +62,17 @@ def verify_password(plain_password: str, hashed_password: str):
 
 def get_password_hash(password: str):
     return pwd_context.hash(password)
+
+# Password Validation
+
+
+def validate_password(password: str):
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters long")
+    if not any(c.isdigit() for c in password):
+        raise ValueError("Password must contain at least one digit")
+    if not any(c.isalpha() for c in password):
+        raise ValueError("Password must contain at least one letter")
 
 # JWT Token Handling
 
@@ -115,13 +126,27 @@ def requires_role(required_role: str):
 def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db_user = crud.get_user_by_email(db, email=user.email)
     if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "Email already registered",
+                    "code": "email_exists"}
+        )
 
-    hashed_password = get_password_hash(user.password)
     try:
-        return crud.create_user(db=db, user=user, hashed_password=hashed_password)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        hashed_password = get_password_hash(user.password)
+        created_user = crud.create_user(
+            db=db, user=user, hashed_password=hashed_password)
+        return created_user
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": str(e), "code": "validation_error"}
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "Registration failed", "code": "server_error"}
+        )
 
 
 @app.post("/auth/login")
@@ -129,14 +154,25 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     user = crud.authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
-            status_code=401, detail="Incorrect email or password"
+            status_code=401,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"}
         )
 
     access_token = create_access_token(
         data={"sub": user.email, "role": user.role},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "email": user.email,
+            "name": user.name,
+            "role": user.role
+        }
+    }
 
 # Patient Routes
 
@@ -149,8 +185,16 @@ def create_patient(
 ):
     try:
         return crud.create_patient(db=db, patient=patient, user_id=current_user.id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+        )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 
 @app.get("/patients", response_model=List[schemas.Patient])
@@ -175,7 +219,6 @@ def generate_qr_code(
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    # Generate time-limited token
     qr_token = str(uuid4())
     qr_data = {
         "patient_id": patient.id,
@@ -183,34 +226,28 @@ def generate_qr_code(
         "exp": (datetime.utcnow() + timedelta(hours=1)).isoformat()
     }
 
-    # Store token (simplified - consider Redis in production)
     patient.qr_token = qr_token
     db.commit()
 
-    # Generate QR image
     qr = qrcode.make(qr_data)
     buffer = io.BytesIO()
     qr.save(buffer, format="PNG")
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="image/png")
 
-# QR Token Validation Endpoint
+# QR Token Validation
 
 
 @app.get("/patients/qr/{token}", response_model=schemas.Patient)
-def read_patient_via_qr(
-    token: str,
-    db: Session = Depends(get_db)
-):
+def read_patient_via_qr(token: str, db: Session = Depends(get_db)):
     patient = db.query(models.Patient).filter(
         models.Patient.qr_token == token).first()
     if not patient:
         raise HTTPException(
-            status_code=404, detail="Invalid or expired QR token"
-        )
+            status_code=404, detail="Invalid or expired QR token")
     return patient
 
-# Offline Sync Endpoint
+# Offline Sync
 
 
 @app.post("/patients/sync", response_model=List[schemas.Patient])
@@ -222,8 +259,6 @@ def sync_patients(
     synced = []
     for patient in patients:
         db_patient = crud.get_patient(db, patient.id)
-
-        # Conflict resolution: Latest update wins
         if db_patient:
             if patient.updated_at > db_patient.updated_at:
                 updated = crud.update_patient(
@@ -233,7 +268,6 @@ def sync_patients(
             new_patient = crud.create_patient(
                 db, patient, user_id=current_user.id)
             synced.append(new_patient)
-
     return synced
 
 # Access Logging Middleware
@@ -264,20 +298,18 @@ async def log_requests(request: Request, call_next):
                         db.add(log)
                         db.commit()
         except Exception:
-            pass  # Don't fail the request if logging fails
+            pass
         finally:
             db.close()
 
     return response
 
-# Health Check
+# Health Check & Root
 
 
 @app.get("/health")
 def health_check():
     return {"status": "OK", "timestamp": datetime.utcnow()}
-
-# Root Endpoint
 
 
 @app.get("/")
@@ -287,3 +319,19 @@ def root():
         "docs": "/docs",
         "version": "1.0.0"
     }
+
+# Token Verification
+
+
+@app.get("/auth/verify")
+async def verify_token(token: str = Depends(oauth2_scheme)):
+    try:
+        jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return {"status": "valid"}
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+@app.get("/auth/me", response_model=schemas.User)
+async def get_current_user_data(current_user: models.User = Depends(get_current_user)):
+    return current_user

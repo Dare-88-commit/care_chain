@@ -7,6 +7,7 @@ import QRCode from 'react-qr-code'
 import { Html5QrcodeScanner } from 'html5-qrcode'
 import { openDB } from 'idb'
 import { toast } from 'react-hot-toast'
+import { useAuth } from '../context/AuthContext'
 
 // Initialize IndexedDB
 const initDB = async () => {
@@ -19,6 +20,8 @@ const initDB = async () => {
 }
 
 export default function DashboardPage() {
+    const { isAuthenticated, isLoading, token, logout } = useAuth()
+    const router = useRouter()
     const [searchTerm, setSearchTerm] = useState('')
     const [activeTab, setActiveTab] = useState('dashboard')
     const [showAddPatientModal, setShowAddPatientModal] = useState(false)
@@ -26,24 +29,30 @@ export default function DashboardPage() {
     const [newPatient, setNewPatient] = useState({
         fullName: '',
         age: '',
+        gender: 'male',
         condition: '',
         severity: 'medium',
-        warnings: []
+        warnings: [],
+        allergies: '',
+        symptoms: ''
     })
     const [patients, setPatients] = useState([])
-    const [token, setToken] = useState('')
     const [isOnline, setIsOnline] = useState(true)
     const [syncStatus, setSyncStatus] = useState('up-to-date')
-    const router = useRouter()
 
     useEffect(() => {
-        const storedToken = localStorage.getItem('auth')
-        if (!storedToken) {
+        if (!isLoading && !isAuthenticated) {
             router.push('/login')
         }
-        setToken(storedToken)
+    }, [isAuthenticated, isLoading, router])
 
-        // Set up online/offline detection
+    useEffect(() => {
+        if (isAuthenticated && token) {
+            fetchPatients()
+        }
+    }, [isAuthenticated, token])
+
+    useEffect(() => {
         const handleOnline = () => {
             setIsOnline(true)
             syncPendingPatients()
@@ -58,31 +67,20 @@ export default function DashboardPage() {
             window.removeEventListener('online', handleOnline)
             window.removeEventListener('offline', handleOffline)
         }
-    }, [router])
-
-    useEffect(() => {
-        if (token) {
-            fetchPatients()
-        }
-    }, [token])
+    }, [])
 
     const fetchPatients = async () => {
         try {
             const response = await axios.get('http://127.0.0.1:8000/patients', {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
+                headers: { Authorization: `Bearer ${token}` }
             })
             setPatients(response.data)
 
-            // Cache in IndexedDB
             const db = await initDB()
             const tx = db.transaction('patients', 'readwrite')
             await Promise.all(
-                response.data.map(patient =>
-                    tx.objectStore('patients').put(patient)
-                )
-            )
+                response.data.map(patient => tx.objectStore('patients').put(patient))
+            ) // This closing parenthesis was missing
         } catch (error) {
             console.error('Online fetch failed, loading from cache:', error)
             try {
@@ -98,7 +96,7 @@ export default function DashboardPage() {
     }
 
     const syncPendingPatients = async () => {
-        if (!isOnline) return
+        if (!isOnline || !token) return
 
         try {
             setSyncStatus('syncing')
@@ -116,11 +114,14 @@ export default function DashboardPage() {
                     const response = await axios.post(
                         'http://127.0.0.1:8000/patients',
                         {
-                            fullName: patient.fullName,
+                            full_name: patient.fullName,
                             age: Number(patient.age),
+                            gender: patient.gender,
                             condition: patient.condition,
-                            severity: patient.severity || 'medium',
-                            warnings: patient.warnings || []
+                            severity: patient.severity,
+                            warnings: patient.warnings,
+                            allergies: patient.allergies,
+                            symptoms: patient.symptoms
                         },
                         {
                             headers: {
@@ -129,15 +130,13 @@ export default function DashboardPage() {
                             }
                         }
                     )
-
-                    // Remove from pending and add to patients
                     await db.delete('pending', patient.id)
                     synced.push(response.data)
                 } catch (syncError) {
                     console.error('Failed to sync patient:', syncError)
                     setSyncStatus('error')
                     toast.error(`Failed to sync patient: ${patient.fullName}`)
-                    break // Stop on first error
+                    break
                 }
             }
 
@@ -145,7 +144,6 @@ export default function DashboardPage() {
                 toast.success(`Synced ${synced.length} patient(s)!`)
                 setPatients(prev => [...prev.filter(p => !p.offline), ...synced])
             }
-
             setSyncStatus('up-to-date')
         } catch (error) {
             console.error('Error syncing pending patients:', error)
@@ -155,7 +153,7 @@ export default function DashboardPage() {
     }
 
     const handleLogout = () => {
-        localStorage.removeItem('auth')
+        logout()
         router.push('/login')
     }
 
@@ -167,14 +165,24 @@ export default function DashboardPage() {
     const handlePatientSubmit = async (e) => {
         e.preventDefault()
 
-        if (!isOnline) {
-            try {
+        try {
+            const patientData = {
+                full_name: newPatient.fullName,
+                age: Number(newPatient.age),
+                gender: newPatient.gender,
+                condition: newPatient.condition,
+                severity: newPatient.severity,
+                warnings: newPatient.warnings,
+                allergies: newPatient.allergies,
+                symptoms: newPatient.symptoms
+            }
+
+            if (!isOnline) {
                 const db = await initDB()
                 const offlinePatient = {
-                    ...newPatient,
-                    id: Date.now(), // Temp ID
-                    offline: true,
-                    age: Number(newPatient.age)
+                    ...patientData,
+                    id: Date.now(),
+                    offline: true
                 }
                 await db.add('pending', offlinePatient)
                 setPatients(prev => [...prev, offlinePatient])
@@ -182,45 +190,57 @@ export default function DashboardPage() {
                 setNewPatient({
                     fullName: '',
                     age: '',
+                    gender: 'male',
                     condition: '',
                     severity: 'medium',
-                    warnings: []
+                    warnings: [],
+                    allergies: '',
+                    symptoms: ''
                 })
                 toast.success('Patient saved locally and will sync when online!')
-            } catch (error) {
-                console.error('Error saving offline:', error)
-                toast.error('Failed to save patient locally')
+                return
             }
-            return
-        }
 
-        try {
             const response = await axios.post(
                 'http://127.0.0.1:8000/patients',
-                {
-                    ...newPatient,
-                    age: Number(newPatient.age)
-                },
+                patientData,
                 {
                     headers: {
-                        Authorization: `Bearer ${token}`,
+                        'Authorization': `Bearer ${token}`,
                         'Content-Type': 'application/json'
                     }
                 }
             )
+
             setPatients(prev => [...prev, response.data])
             setShowAddPatientModal(false)
             setNewPatient({
                 fullName: '',
                 age: '',
+                gender: 'male',
                 condition: '',
                 severity: 'medium',
-                warnings: []
+                warnings: [],
+                allergies: '',
+                symptoms: ''
             })
             toast.success('Patient added successfully!')
         } catch (error) {
             console.error('Error adding patient:', error)
-            toast.error(`Failed to add patient: ${error.response?.data?.detail || error.message}`)
+
+            let errorMessage = 'Failed to add patient'
+            if (error.response) {
+                if (error.response.status === 422) {
+                    const errors = error.response.data.detail
+                    errorMessage = Array.isArray(errors)
+                        ? errors.map(err => `${err.loc.join('.')}: ${err.msg}`).join('\n')
+                        : errors
+                } else {
+                    errorMessage = error.response.data.detail || errorMessage
+                }
+            }
+
+            toast.error(errorMessage)
             if (error.response?.status === 401) {
                 handleLogout()
             }
@@ -254,6 +274,14 @@ export default function DashboardPage() {
         }
 
         img.src = `data:image/svg+xml;base64,${btoa(svgData)}`
+    }
+
+    if (isLoading || !isAuthenticated) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="text-2xl">Loading...</div>
+            </div>
+        )
     }
 
     return (
@@ -326,21 +354,24 @@ export default function DashboardPage() {
 
                 {/* Tab Content */}
                 {activeTab === 'dashboard' && <DashboardHome setShowAddPatientModal={setShowAddPatientModal} isOnline={isOnline} />}
-                {activeTab === 'patients' && <PatientsPage patients={patients} onScanClick={() => setShowQRScanner(true)} downloadQRCode={downloadQRCode} />}
+                {activeTab === 'patients' && <PatientsPage patients={patients} onScanClick={() => setShowQRScanner(true)} downloadQRCode={downloadQRCode} token={token} />}
                 {activeTab === 'qr-scanner' && <QRScannerPage onScanSuccess={handleScanSuccess} />}
                 {activeTab === 'appointments' && <AppointmentsPage />}
                 {activeTab === 'settings' && <SettingsPage />}
 
                 {/* Add Patient Modal */}
                 {showAddPatientModal && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-                        <div className="bg-white p-8 rounded-xl w-full max-w-md">
-                            <h2 className="text-2xl font-bold text-black mb-6">Add New Patient</h2>
-                            {!isOnline && (
-                                <div className="mb-4 p-2 bg-yellow-100 text-yellow-800 rounded">
-                                    You're offline. Patient will be saved locally and synced when you're back online.
-                                </div>
-                            )}
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 overflow-y-auto py-8">
+                        <div className="bg-white p-8 rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+                            <div className="sticky top-0 bg-white pb-4">
+                                <h2 className="text-2xl font-bold text-black mb-6">Add New Patient</h2>
+                                {!isOnline && (
+                                    <div className="mb-4 p-2 bg-yellow-100 text-yellow-800 rounded">
+                                        You're offline. Patient will be saved locally and synced when you're back online.
+                                    </div>
+                                )}
+                            </div>
+
                             <form onSubmit={handlePatientSubmit} className="space-y-6">
                                 <div>
                                     <label className="block text-sm font-medium text-black mb-2">Full Name</label>
@@ -371,6 +402,20 @@ export default function DashboardPage() {
                                 </div>
 
                                 <div>
+                                    <label className="block text-sm font-medium text-black mb-2">Gender</label>
+                                    <select
+                                        name="gender"
+                                        value={newPatient.gender}
+                                        onChange={handlePatientChange}
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+                                        required
+                                    >
+                                        <option value="male">Male</option>
+                                        <option value="female">Female</option>
+                                    </select>
+                                </div>
+
+                                <div>
                                     <label className="block text-sm font-medium text-black mb-2">Condition</label>
                                     <input
                                         type="text"
@@ -384,16 +429,42 @@ export default function DashboardPage() {
                                 </div>
 
                                 <div>
+                                    <label className="block text-sm font-medium text-black mb-2">Allergies</label>
+                                    <input
+                                        type="text"
+                                        name="allergies"
+                                        value={newPatient.allergies}
+                                        onChange={handlePatientChange}
+                                        placeholder="List any allergies"
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-black mb-2">Symptoms</label>
+                                    <input
+                                        type="text"
+                                        name="symptoms"
+                                        value={newPatient.symptoms}
+                                        onChange={handlePatientChange}
+                                        placeholder="Describe symptoms"
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+                                    />
+                                </div>
+
+                                <div>
                                     <label className="block text-sm font-medium text-black mb-2">Severity</label>
                                     <select
                                         name="severity"
                                         value={newPatient.severity}
                                         onChange={handlePatientChange}
                                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+                                        required
                                     >
                                         <option value="low">Low</option>
                                         <option value="medium">Medium</option>
                                         <option value="high">High</option>
+                                        <option value="critical">Critical</option>
                                     </select>
                                 </div>
 
@@ -412,20 +483,22 @@ export default function DashboardPage() {
                                     />
                                 </div>
 
-                                <div className="flex justify-end space-x-4 pt-4">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowAddPatientModal(false)}
-                                        className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                                    >
-                                        {isOnline ? 'Save' : 'Save Locally'}
-                                    </button>
+                                <div className="sticky bottom-0 bg-white pt-4 border-t">
+                                    <div className="flex justify-end space-x-4">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAddPatientModal(false)}
+                                            className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                                        >
+                                            {isOnline ? 'Save' : 'Save Locally'}
+                                        </button>
+                                    </div>
                                 </div>
                             </form>
                         </div>
@@ -488,27 +561,22 @@ function DashboardHome({ setShowAddPatientModal, isOnline }) {
     )
 }
 
-function PatientsPage({ patients, onScanClick, downloadQRCode }) {
+function PatientsPage({ patients, onScanClick, downloadQRCode, token }) {
     const [selectedPatient, setSelectedPatient] = useState(null)
     const [qrCodeData, setQrCodeData] = useState(null)
-    const token = localStorage.getItem('auth')
 
-    // Severity color mapping
     const severityColors = {
         high: "bg-red-100 text-red-800",
         medium: "bg-yellow-100 text-yellow-800",
-        low: "bg-green-100 text-green-800"
+        low: "bg-green-100 text-green-800",
+        critical: "bg-purple-100 text-purple-800"
     }
 
     const fetchQRCode = async (patientId) => {
         try {
             const response = await axios.get(
                 `http://127.0.0.1:8000/patients/${patientId}/qrcode`,
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`
-                    }
-                }
+                { headers: { Authorization: `Bearer ${token}` } }
             )
             setQrCodeData(response.data.qr_code)
             setSelectedPatient(patientId)
@@ -534,12 +602,11 @@ function PatientsPage({ patients, onScanClick, downloadQRCode }) {
                 {patients.map((patient) => (
                     <div key={patient.id} className="bg-white p-4 rounded-xl shadow border border-gray-100 space-y-4">
                         <div>
-                            <h3 className="text-lg font-semibold">{patient.fullName}</h3>
+                            <h3 className="text-lg font-semibold">{patient.full_name || patient.fullName}</h3>
                             <p>Age: {patient.age}</p>
                             <p>Condition: {patient.condition}</p>
                             {patient.offline && <p className="text-yellow-600 text-sm">(Pending sync)</p>}
 
-                            {/* Severity indicator */}
                             {patient.severity && (
                                 <div className={`mt-2 p-2 rounded text-sm ${severityColors[patient.severity] || 'bg-gray-100 text-gray-800'}`}>
                                     {patient.warnings?.join(", ") || 'No warnings'}
@@ -715,7 +782,8 @@ function StatCard({ label, value, icon, growth, color }) {
     const colorMap = {
         green: 'text-green-600 bg-green-100',
         red: 'text-red-600 bg-red-100',
-        gray: 'text-gray-600 bg-gray-100'
+        gray: 'text-gray-600 bg-gray-100',
+        purple: 'text-purple-600 bg-purple-100'
     }
     return (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">

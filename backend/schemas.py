@@ -129,10 +129,12 @@ class PatientBase(BaseModel):
     full_name: str = Field(..., min_length=2,
                            max_length=100, example="John Smith")
     age: conint(gt=0, lt=120) = Field(..., example=35)
-    gender: Literal["male", "female", "other"] = Field(..., example="male")
+    gender: Literal["male", "female"] = Field(..., example="male")
     blood_type: Optional[BloodType] = Field(None, example="A+")
     condition: str = Field(..., min_length=3,
                            max_length=500, example="Hypertension")
+    severity: SeverityLevel = Field(default=SeverityLevel.MEDIUM)
+    warnings: List[str] = Field([], example=["Allergy to penicillin"])
 
 
 class PatientCreate(PatientBase):
@@ -147,6 +149,12 @@ class PatientCreate(PatientBase):
             raise ValueError("Name cannot contain numbers")
         return v.strip().title()
 
+    @validator('severity')
+    def validate_severity(cls, v):
+        if v not in ["low", "medium", "high", "critical"]:
+            raise ValueError("Severity must be low, medium, high, or critical")
+        return v
+
 
 class PatientUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=2, max_length=100)
@@ -154,6 +162,8 @@ class PatientUpdate(BaseModel):
     gender: Optional[Literal["male", "female", "other"]]
     blood_type: Optional[BloodType]
     condition: Optional[str] = Field(None, min_length=3, max_length=500)
+    severity: Optional[SeverityLevel]
+    warnings: Optional[List[str]]
     allergies: Optional[str] = Field(None, max_length=500)
     symptoms: Optional[str] = Field(None, max_length=1000)
 
@@ -176,6 +186,8 @@ class PatientResponse(PatientBase):
                 "gender": "male",
                 "blood_type": "A+",
                 "condition": "Hypertension",
+                "severity": "medium",
+                "warnings": ["Allergy to penicillin"],
                 "symptom_flags": "High blood pressure",
                 "is_critical": False,
                 "created_at": "2023-01-01T00:00:00",
@@ -285,3 +297,20 @@ class ErrorResponse(BaseModel):
 
 class SuccessResponse(BaseModel):
     message: str = Field(..., example="Operation successful")
+
+
+class PatientCreate(BaseModel):
+    full_name: str = Field(..., min_length=2,
+                           max_length=100, example="John Smith")
+    age: conint(gt=0, lt=120) = Field(..., example=35)
+    gender: Literal["male", "female", "other"] = Field(..., example="male")
+    condition: str = Field(..., min_length=3, max_length=500, example="Fever")
+    severity: Literal["low", "medium", "high"] = Field(
+        "medium", example="medium")
+    warnings: List[str] = Field([], example=["None"])
+
+    @validator('full_name')
+    def validate_full_name(cls, v):
+        if any(char.isdigit() for char in v):
+            raise ValueError("Name cannot contain numbers")
+        return v.strip().title()

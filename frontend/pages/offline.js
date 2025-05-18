@@ -19,9 +19,9 @@ export default function OfflineIndicator() {
     }, []);
 
     return (
-        <div className={`fixed bottom-4 right-4 p-3 rounded-lg ${isOnline ? 'bg-green-500' : 'bg-red-500'
-            } text-white shadow-lg`}>
-            {isOnline ? 'Online' : 'Offline - Working Locally'}
+        <div className={`fixed bottom-4 right-4 p-3 rounded-lg ${isOnline ? 'bg-green-500' : 'bg-yellow-500'
+            } text-white shadow-lg transition-all`}>
+            {isOnline ? '✅ Online' : '⚠️ Offline - Working locally'}
         </div>
     );
 }
