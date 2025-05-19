@@ -163,46 +163,30 @@ export default function DashboardPage() {
     }
 
     const handlePatientSubmit = async (e) => {
-        e.preventDefault()
+        e.preventDefault();
+
+        // Validate required fields
+        if (!newPatient.fullName || !newPatient.age || !newPatient.condition) {
+            toast.error('Name, age and condition are required');
+            return;
+        }
 
         try {
             const patientData = {
-                full_name: newPatient.fullName,
+                full_name: newPatient.fullName.trim(),
                 age: Number(newPatient.age),
-                gender: newPatient.gender,
-                condition: newPatient.condition,
-                severity: newPatient.severity,
-                warnings: newPatient.warnings,
-                allergies: newPatient.allergies,
-                symptoms: newPatient.symptoms
-            }
-
-            if (!isOnline) {
-                const db = await initDB()
-                const offlinePatient = {
-                    ...patientData,
-                    id: Date.now(),
-                    offline: true
-                }
-                await db.add('pending', offlinePatient)
-                setPatients(prev => [...prev, offlinePatient])
-                setShowAddPatientModal(false)
-                setNewPatient({
-                    fullName: '',
-                    age: '',
-                    gender: 'male',
-                    condition: '',
-                    severity: 'medium',
-                    warnings: [],
-                    allergies: '',
-                    symptoms: ''
-                })
-                toast.success('Patient saved locally and will sync when online!')
-                return
-            }
+                gender: newPatient.gender || "male",
+                condition: newPatient.condition.trim(),
+                severity: newPatient.severity || "medium",
+                warnings: Array.isArray(newPatient.warnings)
+                    ? newPatient.warnings
+                    : String(newPatient.warnings || "").split(",").map(w => w.trim()),
+                allergies: String(newPatient.allergies || "").trim(),
+                symptoms: String(newPatient.symptoms || "").trim()
+            };
 
             const response = await axios.post(
-                'http://127.0.0.1:8000/patients',
+                'http://localhost:8000/patients',
                 patientData,
                 {
                     headers: {
@@ -210,10 +194,11 @@ export default function DashboardPage() {
                         'Content-Type': 'application/json'
                     }
                 }
-            )
+            );
 
-            setPatients(prev => [...prev, response.data])
-            setShowAddPatientModal(false)
+            // Success handling
+            setPatients(prev => [...prev, response.data]);
+            setShowAddPatientModal(false);
             setNewPatient({
                 fullName: '',
                 age: '',
@@ -223,29 +208,30 @@ export default function DashboardPage() {
                 warnings: [],
                 allergies: '',
                 symptoms: ''
-            })
-            toast.success('Patient added successfully!')
-        } catch (error) {
-            console.error('Error adding patient:', error)
+            });
+            toast.success('Patient added successfully!');
 
-            let errorMessage = 'Failed to add patient'
+        } catch (error) {
+            console.error('Error adding patient:', {
+                error: error.response?.data || error.message,
+                request: error.config
+            });
+
+            let errorMessage = 'Failed to add patient';
             if (error.response) {
                 if (error.response.status === 422) {
-                    const errors = error.response.data.detail
-                    errorMessage = Array.isArray(errors)
-                        ? errors.map(err => `${err.loc.join('.')}: ${err.msg}`).join('\n')
-                        : errors
+                    errorMessage = error.response.data.detail || 'Validation failed';
+                } else if (error.response.status === 401) {
+                    errorMessage = 'Session expired - please login again';
+                    logout();
+                    router.push('/login');
                 } else {
-                    errorMessage = error.response.data.detail || errorMessage
+                    errorMessage = error.response.data?.detail || `Server error (${error.response.status})`;
                 }
             }
-
-            toast.error(errorMessage)
-            if (error.response?.status === 401) {
-                handleLogout()
-            }
+            toast.error(errorMessage);
         }
-    }
+    };
 
     const handleScanSuccess = (result) => {
         const patientId = result.split('/').pop()
@@ -256,26 +242,53 @@ export default function DashboardPage() {
     }
 
     const downloadQRCode = (patientId) => {
-        const svg = document.getElementById(`qrcode-${patientId}`)
-        const svgData = new XMLSerializer().serializeToString(svg)
-        const canvas = document.createElement("canvas")
-        const ctx = canvas.getContext("2d")
-        const img = new Image()
-
-        img.onload = () => {
-            canvas.width = img.width
-            canvas.height = img.height
-            ctx.drawImage(img, 0, 0)
-            const pngFile = canvas.toDataURL("image/png")
-            const downloadLink = document.createElement("a")
-            downloadLink.download = `patient-${patientId}-qrcode.png`
-            downloadLink.href = `${pngFile}`
-            downloadLink.click()
-        }
-
-        img.src = `data:image/svg+xml;base64,${btoa(svgData)}`
+  try {
+    console.log(`Attempting to download QR code for patient ${patientId}`);
+    
+    // Get the SVG element
+    const svgElement = document.getElementById(`qrcode-${patientId}`)?.querySelector('svg');
+    if (!svgElement) {
+      console.error(`SVG element not found for patient ${patientId}`);
+      return;
     }
 
+    // Serialize the SVG
+    const svgData = new XMLSerializer().serializeToString(svgElement);
+    
+    // Create canvas
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const img = new window.Image();
+
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      
+      // Create download link
+      const pngUrl = canvas.toDataURL("image/png");
+      const downloadLink = document.createElement("a");
+      downloadLink.download = `patient-${patientId}-qrcode.png`;
+      downloadLink.href = pngUrl;
+      
+      // Required for Firefox
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+    };
+
+    img.onerror = (e) => {
+      console.error('Error loading image:', e);
+    };
+
+    // Properly encode SVG
+    const svgBase64 = btoa(unescape(encodeURIComponent(svgData)));
+    img.src = `data:image/svg+xml;base64,${svgBase64}`;
+    
+  } catch (error) {
+    console.error('Error in downloadQRCode:', error);
+  }
+};
     if (isLoading || !isAuthenticated) {
         return (
             <div className="min-h-screen flex items-center justify-center">
@@ -374,7 +387,7 @@ export default function DashboardPage() {
 
                             <form onSubmit={handlePatientSubmit} className="space-y-6">
                                 <div>
-                                    <label className="block text-sm font-medium text-black mb-2">Full Name</label>
+                                    <label className="block text-sm font-medium text-black mb-2">Full Name<span className="text-red-500">*</span></label>
                                     <input
                                         type="text"
                                         name="fullName"
@@ -387,7 +400,7 @@ export default function DashboardPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-black mb-2">Age</label>
+                                    <label className="block text-sm font-medium text-black mb-2">Age<span className="text-red-500">*</span></label>
                                     <input
                                         type="number"
                                         name="age"
@@ -402,7 +415,7 @@ export default function DashboardPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-black mb-2">Gender</label>
+                                    <label className="block text-sm font-medium text-black mb-2">Gender<span className="text-red-500">*</span></label>
                                     <select
                                         name="gender"
                                         value={newPatient.gender}
@@ -416,7 +429,7 @@ export default function DashboardPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-black mb-2">Condition</label>
+                                    <label className="block text-sm font-medium text-black mb-2">Condition<span className="text-red-500">*</span></label>
                                     <input
                                         type="text"
                                         name="condition"
@@ -453,7 +466,7 @@ export default function DashboardPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-black mb-2">Severity</label>
+                                    <label className="block text-sm font-medium text-black mb-2">Severity<span className="text-red-500">*</span></label>
                                     <select
                                         name="severity"
                                         value={newPatient.severity}

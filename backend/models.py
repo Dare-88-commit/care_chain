@@ -56,6 +56,8 @@ class Patient(Base):
     gender = Column(String(10))
     blood_type = Column(String(5))
     condition = Column(Text, nullable=False)
+    severity = Column(String(20))
+    warnings = Column(Text)
     allergies = Column(Text)
     symptoms = Column(Text)
     symptom_flags = Column(String(200))

@@ -65,39 +65,34 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[models
 # --------------------------
 
 
-def create_patient(db: Session, patient: schemas.PatientCreate, user_id: int) -> models.Patient:
-    """Create patient with risk assessment and transaction safety"""
+def create_patient(db: Session, patient: schemas.PatientCreate, user_id: int):
+    """Create a new patient record with proper error handling"""
     try:
-        risk_check = check_patient_risks(patient.dict())
+        # Convert warnings to comma-separated string if it's a list
+        warnings = ", ".join(patient.warnings) if isinstance(
+            patient.warnings, list) else patient.warnings or ""
 
+        # Create the database patient object
         db_patient = models.Patient(
-            **patient.dict(),
-            creator_id=user_id,
-            symptom_flags=", ".join(risk_check['warnings']),
-            is_critical=risk_check['is_risky'],
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            full_name=patient.full_name,
+            age=patient.age,
+            gender=patient.gender or 'male',
+            condition=patient.condition,
+            severity=patient.severity or 'medium',
+            warnings=warnings,
+            allergies=getattr(patient, 'allergies', ''),
+            symptoms=getattr(patient, 'symptoms', ''),
+            creator_id=user_id
         )
 
         db.add(db_patient)
         db.commit()
         db.refresh(db_patient)
-
-        # Create initial access log
-        log = models.AccessLog(
-            user_id=user_id,
-            patient_id=db_patient.id,
-            action="create",
-            timestamp=datetime.utcnow()
-        )
-        db.add(log)
-        db.commit()
-
         return db_patient
+
     except Exception as e:
         db.rollback()
-        logger.error(f"Error creating patient: {str(e)}")
-        raise ValueError(f"Could not create patient: {str(e)}")
+        raise ValueError(f"Failed to create patient: {str(e)}")
 
 
 def get_patients(db: Session, skip: int = 0, limit: int = 100) -> List[models.Patient]:

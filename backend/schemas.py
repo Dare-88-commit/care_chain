@@ -137,23 +137,15 @@ class PatientBase(BaseModel):
     warnings: List[str] = Field([], example=["Allergy to penicillin"])
 
 
-class PatientCreate(PatientBase):
-    allergies: Optional[str] = Field(
-        None, max_length=500, example="Penicillin, Peanuts")
-    symptoms: Optional[str] = Field(
-        None, max_length=1000, example="Headache, Dizziness")
-
-    @validator('full_name')
-    def validate_full_name(cls, v):
-        if any(char.isdigit() for char in v):
-            raise ValueError("Name cannot contain numbers")
-        return v.strip().title()
-
-    @validator('severity')
-    def validate_severity(cls, v):
-        if v not in ["low", "medium", "high", "critical"]:
-            raise ValueError("Severity must be low, medium, high, or critical")
-        return v
+class PatientCreate(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=100)
+    age: int = Field(..., gt=0, lt=120)
+    gender: Literal["male", "female", "other"] = "male"
+    condition: str = Field(..., min_length=3)
+    severity: Literal["low", "medium", "high", "critical"] = "medium"
+    warnings: List[str] = Field([])
+    allergies: Optional[str] = None
+    symptoms: Optional[str] = None
 
 
 class PatientUpdate(BaseModel):
@@ -175,6 +167,13 @@ class PatientResponse(PatientBase):
     is_critical: bool
     created_at: datetime
     updated_at: datetime
+    @validator("warnings", pre=True)
+    def parse_warnings(cls, v):
+        if isinstance(v, str):
+            if v.strip() == "":
+                return []
+            return [w.strip() for w in v.split(",")]
+        return v
 
     class Config:
         from_attributes = True

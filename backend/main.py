@@ -250,25 +250,19 @@ def read_patient_via_qr(token: str, db: Session = Depends(get_db)):
 # Offline Sync
 
 
-@app.post("/patients/sync", response_model=List[schemas.Patient])
-def sync_patients(
-    patients: List[schemas.PatientSync],
+@app.post("/patients", response_model=schemas.Patient)
+def create_patient(
+    patient: schemas.PatientCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    synced = []
-    for patient in patients:
-        db_patient = crud.get_patient(db, patient.id)
-        if db_patient:
-            if patient.updated_at > db_patient.updated_at:
-                updated = crud.update_patient(
-                    db, patient_id=patient.id, patient=patient)
-                synced.append(updated)
-        else:
-            new_patient = crud.create_patient(
-                db, patient, user_id=current_user.id)
-            synced.append(new_patient)
-    return synced
+    try:
+        return crud.create_patient(db=db, patient=patient, user_id=current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 # Access Logging Middleware
 
