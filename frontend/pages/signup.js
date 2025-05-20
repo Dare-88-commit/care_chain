@@ -47,7 +47,7 @@ export default function SignUpPage() {
         setIsLoading(true)
 
         try {
-            const response = await fetch('http://localhost:8000/auth/signup', {
+            const response = await fetch('https://care-chain.onrender.com/auth/signup', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

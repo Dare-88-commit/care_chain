@@ -71,7 +71,7 @@ export default function DashboardPage() {
 
     const fetchPatients = async () => {
         try {
-            const response = await axios.get('http://127.0.0.1:8000/patients', {
+            const response = await axios.get('https://care-chain.onrender.com/patients', {
                 headers: { Authorization: `Bearer ${token}` }
             })
             setPatients(response.data)
@@ -112,7 +112,7 @@ export default function DashboardPage() {
             for (const patient of pending) {
                 try {
                     const response = await axios.post(
-                        'http://127.0.0.1:8000/patients',
+                        'https://care-chain.onrender.com/patients',
                         {
                             full_name: patient.fullName,
                             age: Number(patient.age),
@@ -186,7 +186,7 @@ export default function DashboardPage() {
         };
 
         const response = await axios.post(
-            'http://localhost:8000/patients',
+            'https://care-chain.onrender.com/patients',
             patientData,
             {
                 headers: {
@@ -596,7 +596,7 @@ function PatientsPage({ patients, onScanClick, downloadQRCode, token }) {
     const fetchQRCode = async (patientId) => {
         try {
             const response = await axios.get(
-                `http://127.0.0.1:8000/patients/${patientId}/qrcode`,
+                `https://care-chain.onrender.com/patients/${patientId}/qrcode`,
                 { headers: { Authorization: `Bearer ${token}` } }
             )
             setQrCodeData(response.data.qr_code)
