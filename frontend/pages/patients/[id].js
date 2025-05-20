@@ -11,7 +11,7 @@ export default function PatientPage() {
   useEffect(() => {
     if (!id) return;
 
-    fetch(`http://localhost:8000/patients/${id}`) // or hosted backend
+    fetch(`https://care-chain.onrender.com/patients/${id}`) // or hosted backend
       .then(res => res.json())
       .then(data => {
         setPatient(data)

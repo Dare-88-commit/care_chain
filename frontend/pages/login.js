@@ -70,7 +70,7 @@ export default function LoginPage() {
 
             const { access_token } = await response.json()
             await login(access_token, form.rememberMe)
-            window.location.href = '/dashboard'
+            router.push('/dashboard')
 
         } catch (error) {
             console.error('Login error:', error)

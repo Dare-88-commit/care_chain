@@ -29,7 +29,10 @@ def on_startup():
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(","),
+    allow_origins=[
+        "https://care-chain.vercel.app", 
+        "http://localhost:3000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -261,12 +264,15 @@ def root():
 
 # Token Verification
 @app.get("/auth/verify")
-async def verify_token(token: str = Depends(oauth2_scheme)):
-    try:
-        jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return {"status": "valid"}
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+async def verify_token(current_user: models.User = Depends(get_current_user)):
+    return {
+        "status": "valid",
+        "user": {
+            "email": current_user.email,
+            "name": current_user.name,
+            "role": current_user.role
+        }
+    }
 
 @app.get("/auth/me", response_model=schemas.User)
 async def get_current_user_data(current_user: models.User = Depends(get_current_user)):
