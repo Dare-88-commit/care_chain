@@ -3,109 +3,176 @@ import { useRouter } from 'next/router';
 
 const AuthContext = createContext();
 
-// Use environment variable with localhost fallback
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+// Enhanced API base URL configuration with validation
+const getApiBaseUrl = () => {
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  
+  if (!baseUrl) {
+    console.warn('NEXT_PUBLIC_API_BASE_URL is not set!');
+    return process.env.NODE_ENV === 'production' 
+      ? 'https://care-chain.onrender.com' 
+      : 'http://localhost:8000';
+  }
+  return baseUrl;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export function AuthProvider({ children }) {
     const [authState, setAuthState] = useState({
         isAuthenticated: false,
         token: null,
         user: null,
-        isLoading: true
+        isLoading: true,
+        error: null
     });
     const router = useRouter();
 
-    useEffect(() => {
-        const initializeAuth = async () => {
-            const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-            console.log('initializeAuth token:', token);
-
-            if (!token) {
-                setAuthState(prev => ({ ...prev, isLoading: false }));
-                return;
-            }
-
-            try {
-                // Use API_BASE_URL instead of hardcoded URL
-                const response = await fetch(`${API_BASE_URL}/auth/verify`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                    },
-                    credentials: 'include' // Important for cookies
-                });
-
-                console.log('verify status:', response.status);
-
-                if (response.ok) {
-                    const userData = await response.json(); // Get user data directly from verify endpoint
-                    setAuthState({
-                        isAuthenticated: true,
-                        token,
-                        user: userData.user, // Changed from fetchUserData()
-                        isLoading: false
-                    });
-                } else {
-                    console.log('Token invalid, logging out...');
-                    logout();
-                }
-            } catch (error) {
-                console.log('Error during token verification:', error);
-                logout();
-            }
-        };
-
-        initializeAuth();
-    }, []);
-
-    const login = async (token, rememberMe) => {
-        const storage = rememberMe ? localStorage : sessionStorage;
-        storage.setItem('authToken', token);
-
+    // Enhanced fetch with timeout and retries
+    const authFetch = async (endpoint, options = {}, retries = 2) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+        
         try {
-            // Verify token immediately after login
-            const verifyResponse = await fetch(`${API_BASE_URL}/auth/verify`, {
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                ...options,
+                signal: controller.signal,
                 headers: {
-                    'Authorization': `Bearer ${token}`
+                    'Content-Type': 'application/json',
+                    ...options.headers
                 },
                 credentials: 'include'
             });
-
-            if (!verifyResponse.ok) {
-                throw new Error('Session verification failed');
-            }
-
-            const userData = await verifyResponse.json();
             
-            setAuthState({
-                isAuthenticated: true,
-                token,
-                user: userData.user, // Use user data from verify endpoint
-                isLoading: false
-            });
+            clearTimeout(timeout);
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+            }
+            
+            return await response.json();
         } catch (error) {
-            console.error('Login verification failed:', error);
-            logout();
-            throw error; // Re-throw to show error in UI
+            clearTimeout(timeout);
+            
+            if (retries > 0 && !error.message.includes('aborted')) {
+                console.warn(`Retrying ${endpoint}... (${retries} left)`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return authFetch(endpoint, options, retries - 1);
+            }
+            
+            throw error;
         }
     };
 
-    const logout = () => {
+    const initializeAuth = async () => {
+        try {
+            const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+            console.debug('Auth initialization started', { hasToken: !!token });
+
+            if (!token) {
+                return setAuthState(prev => ({ ...prev, isLoading: false }));
+            }
+
+            const data = await authFetch('/auth/verify', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            setAuthState({
+                isAuthenticated: true,
+                token,
+                user: data.user,
+                isLoading: false,
+                error: null
+            });
+        } catch (error) {
+            console.error('Auth initialization failed:', error);
+            setAuthState(prev => ({
+                ...prev,
+                isLoading: false,
+                error: 'Session expired. Please login again.'
+            }));
+            logout();
+        }
+    };
+
+    useEffect(() => {
+        initializeAuth();
+        
+        // Optional: Add event listener for storage changes
+        const handleStorageChange = (e) => {
+            if (e.key === 'authToken') {
+                initializeAuth();
+            }
+        };
+        
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
+    }, []);
+
+    const login = async (token, rememberMe) => {
+        try {
+            const storage = rememberMe ? localStorage : sessionStorage;
+            storage.setItem('authToken', token);
+
+            const data = await authFetch('/auth/verify', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            setAuthState({
+                isAuthenticated: true,
+                token,
+                user: data.user,
+                isLoading: false,
+                error: null
+            });
+            
+            return data.user;
+        } catch (error) {
+            console.error('Login verification failed:', error);
+            setAuthState(prev => ({
+                ...prev,
+                error: error.message || 'Login verification failed'
+            }));
+            logout();
+            throw error;
+        }
+    };
+
+    const logout = (redirect = true) => {
+        console.debug('Logging out...');
         localStorage.removeItem('authToken');
         sessionStorage.removeItem('authToken');
+        
         setAuthState({
             isAuthenticated: false,
             token: null,
             user: null,
-            isLoading: false
+            isLoading: false,
+            error: null
         });
-        router.push('/login');
+        
+        if (redirect) {
+            router.push('/login');
+        }
     };
 
     return (
-        <AuthContext.Provider value={{ ...authState, login, logout }}>
+        <AuthContext.Provider value={{ 
+            ...authState,
+            login,
+            logout,
+            refreshAuth: initializeAuth
+        }}>
             {children}
         </AuthContext.Provider>
     );
 }
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+    const context = useContext(AuthContext);
+    if (!context) {
+        throw new Error('useAuth must be used within an AuthProvider');
+    }
+    return context;
+};

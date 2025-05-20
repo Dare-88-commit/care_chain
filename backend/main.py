@@ -30,8 +30,8 @@ def on_startup():
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://care-chain.vercel.app", 
-        "http://localhost:3000"
+        "https://care-chain.vercel.app",
+        "http://localhost:3000"  # For development
     ],
     allow_credentials=True,
     allow_methods=["*"],
