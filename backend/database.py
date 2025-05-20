@@ -2,25 +2,20 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# SQLite database URL - this creates the DB in your project root
-SQLALCHEMY_DATABASE_URL = "sqlite:///./carechain.db"
+# ✅ Neon PostgreSQL connection string
+SQLALCHEMY_DATABASE_URL = "postgresql://Carechain_db_owner:npg_2HjZpqi5PFae@ep-ancient-morning-a5tb8edd-pooler.us-east-2.aws.neon.tech/Carechain_db?sslmode=require"
 
-# Critical settings:
+# ✅ Create engine — no `connect_args` needed for PostgreSQL
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    echo=True  # Leave this True to see SQL in console
+    echo=True  # Optional: print SQL queries to console
 )
 
-# This MUST be after engine creation
+# ✅ Set up Session and Base
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# This creates your Base class
 Base = declarative_base()
 
-# Add this function
-
-
+# ✅ Dependency for getting a DB session (use in FastAPI routes)
 def get_db():
     db = SessionLocal()
     try:
@@ -28,9 +23,7 @@ def get_db():
     finally:
         db.close()
 
-# Add this initialization function
-
-
+# ✅ Initialize tables (create all defined models)
 def initialize_database():
     print("⚠️ FORCE CREATING ALL TABLES ⚠️")
     Base.metadata.create_all(bind=engine)

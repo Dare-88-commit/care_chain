@@ -163,75 +163,83 @@ export default function DashboardPage() {
     }
 
     const handlePatientSubmit = async (e) => {
-        e.preventDefault();
+    e.preventDefault();
 
-        // Validate required fields
-        if (!newPatient.fullName || !newPatient.age || !newPatient.condition) {
-            toast.error('Name, age and condition are required');
-            return;
-        }
+    // Validate required fields
+    if (!newPatient.fullName || !newPatient.age || !newPatient.condition) {
+        toast.error('Name, age and condition are required');
+        return;
+    }
 
-        try {
-            const patientData = {
-                full_name: newPatient.fullName.trim(),
-                age: Number(newPatient.age),
-                gender: newPatient.gender || "male",
-                condition: newPatient.condition.trim(),
-                severity: newPatient.severity || "medium",
-                warnings: Array.isArray(newPatient.warnings)
-                    ? newPatient.warnings
-                    : String(newPatient.warnings || "").split(",").map(w => w.trim()),
-                allergies: String(newPatient.allergies || "").trim(),
-                symptoms: String(newPatient.symptoms || "").trim()
-            };
+    try {
+        const patientData = {
+            full_name: newPatient.fullName.trim(),
+            age: Number(newPatient.age),
+            gender: newPatient.gender || "male",
+            condition: newPatient.condition.trim(),
+            severity: newPatient.severity || "medium",
+            warnings: Array.isArray(newPatient.warnings)
+                ? newPatient.warnings
+                : String(newPatient.warnings || "").split(",").map(w => w.trim()),
+            allergies: String(newPatient.allergies || "").trim(),
+            symptoms: String(newPatient.symptoms || "").trim()
+        };
 
-            const response = await axios.post(
-                'http://localhost:8000/patients',
-                patientData,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
-                }
-            );
-
-            // Success handling
-            setPatients(prev => [...prev, response.data]);
-            setShowAddPatientModal(false);
-            setNewPatient({
-                fullName: '',
-                age: '',
-                gender: 'male',
-                condition: '',
-                severity: 'medium',
-                warnings: [],
-                allergies: '',
-                symptoms: ''
-            });
-            toast.success('Patient added successfully!');
-
-        } catch (error) {
-            console.error('Error adding patient:', {
-                error: error.response?.data || error.message,
-                request: error.config
-            });
-
-            let errorMessage = 'Failed to add patient';
-            if (error.response) {
-                if (error.response.status === 422) {
-                    errorMessage = error.response.data.detail || 'Validation failed';
-                } else if (error.response.status === 401) {
-                    errorMessage = 'Session expired - please login again';
-                    logout();
-                    router.push('/login');
-                } else {
-                    errorMessage = error.response.data?.detail || `Server error (${error.response.status})`;
+        const response = await axios.post(
+            'http://localhost:8000/patients',
+            patientData,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
                 }
             }
-            toast.error(errorMessage);
+        );
+
+        // Success handling
+        setPatients(prev => [...prev, response.data]);
+        setShowAddPatientModal(false);
+        setNewPatient({
+            fullName: '',
+            age: '',
+            gender: 'male',
+            condition: '',
+            severity: 'medium',
+            warnings: [],
+            allergies: '',
+            symptoms: ''
+        });
+        toast.success('Patient added successfully!');
+
+    } catch (error) {
+        console.error('Error adding patient:', {
+            error: error.response?.data || error.message,
+            request: error.config
+        });
+
+        let errorMessage = 'Failed to add patient';
+        
+        if (error.response) {
+            if (error.response.status === 422) {
+                const details = error.response.data.detail;
+                if (Array.isArray(details)) {
+                    errorMessage = details.map(d => d.msg).join(', ');
+                } else {
+                    errorMessage = 'Validation failed';
+                }
+            } else if (error.response.status === 401) {
+                errorMessage = 'Session expired - please login again';
+                logout();
+                router.push('/login');
+            } else {
+                errorMessage = error.response.data?.detail || `Server error (${error.response.status})`;
+            }
         }
-    };
+
+        toast.error(errorMessage);
+    }
+};
+
 
     const handleScanSuccess = (result) => {
         const patientId = result.split('/').pop()
