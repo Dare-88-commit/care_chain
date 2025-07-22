@@ -35,7 +35,8 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     name = Column(String(100), nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.NURSE)
+    role = Column(Enum(UserRole, native_enum=False),
+                  default=UserRole.NURSE, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow,
@@ -69,7 +70,8 @@ class Patient(Base):
                         onupdate=datetime.utcnow)
 
     # Foreign keys
-    creator_id = Column(Integer, ForeignKey("users.id"))
+    creator_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
     creator = relationship("User", back_populates="patients")
@@ -89,7 +91,8 @@ class MedicalRecord(Base):
     treatment = Column(Text)
     notes = Column(Text)
     symptoms = Column(Text)
-    severity = Column(Enum(SeverityLevel), default=SeverityLevel.LOW)
+    severity = Column(Enum(SeverityLevel, native_enum=False),
+                      default=SeverityLevel.LOW, nullable=False)
     is_critical = Column(Boolean, default=False)
     symptom_flags = Column(String(200))
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -97,7 +100,8 @@ class MedicalRecord(Base):
                         onupdate=datetime.utcnow)
 
     # Foreign keys
-    patient_id = Column(Integer, ForeignKey("patients.id"))
+    patient_id = Column(Integer, ForeignKey(
+        "patients.id", ondelete="CASCADE"), nullable=False)
 
     # Relationships
     patient = relationship("Patient", back_populates="records")
@@ -109,16 +113,18 @@ class Appointment(Base):
     id = Column(Integer, primary_key=True, index=True)
     date_time = Column(DateTime, nullable=False)
     purpose = Column(Text)
-    status = Column(Enum(AppointmentStatus),
-                    default=AppointmentStatus.SCHEDULED)
+    status = Column(Enum(AppointmentStatus, native_enum=False),
+                    default=AppointmentStatus.SCHEDULED, nullable=False)
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow,
                         onupdate=datetime.utcnow)
 
     # Foreign keys
-    patient_id = Column(Integer, ForeignKey("patients.id"))
-    doctor_id = Column(Integer, ForeignKey("users.id"))
+    patient_id = Column(Integer, ForeignKey(
+        "patients.id", ondelete="CASCADE"), nullable=False)
+    doctor_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
     patient = relationship("Patient", back_populates="appointments")
@@ -134,8 +140,10 @@ class AccessLog(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
     # Foreign keys
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey(
+        "users.id", ondelete="CASCADE"), nullable=False)
+    patient_id = Column(Integer, ForeignKey(
+        "patients.id", ondelete="CASCADE"), nullable=False)
 
     # Relationships
     user = relationship("User", back_populates="access_logs")

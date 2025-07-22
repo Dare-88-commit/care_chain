@@ -20,7 +20,8 @@ def validate_password(password: str) -> str:
         raise ValueError("Password must contain at least one digit")
     if not any(c in "@$!%*?&" for c in password):
         raise ValueError(
-            "Password must contain at least one special character (@$!%*?&)")
+            "Password must contain at least one special character (@$!%*?&)"
+        )
     return password
 
 # --------------------------
@@ -104,17 +105,6 @@ class UserResponse(UserBase):
 
     class Config:
         from_attributes = True
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "email": "user@carechain.org",
-                "name": "Dr. Jane Doe",
-                "role": "doctor",
-                "is_active": True,
-                "created_at": "2023-01-01T00:00:00",
-                "updated_at": "2023-01-01T00:00:00"
-            }
-        }
 
 
 # Alias for backward compatibility
@@ -137,15 +127,16 @@ class PatientBase(BaseModel):
     warnings: List[str] = Field([], example=["Allergy to penicillin"])
 
 
-class PatientCreate(BaseModel):
-    full_name: str = Field(..., min_length=2, max_length=100)
-    age: int = Field(..., gt=0, lt=120)
-    gender: Literal["male", "female", "other"] = "male"
-    condition: str = Field(..., min_length=3)
-    severity: Literal["low", "medium", "high", "critical"] = "medium"
-    warnings: List[str] = Field([])
+class PatientCreate(PatientBase):
+    gender: Literal["male", "female", "other"] = Field(..., example="male")
     allergies: Optional[str] = None
     symptoms: Optional[str] = None
+
+    @validator('full_name')
+    def validate_full_name(cls, v):
+        if any(char.isdigit() for char in v):
+            raise ValueError("Name cannot contain numbers")
+        return v.strip().title()
 
 
 class PatientUpdate(BaseModel):
@@ -167,6 +158,7 @@ class PatientResponse(PatientBase):
     is_critical: bool
     created_at: datetime
     updated_at: datetime
+
     @validator("warnings", pre=True)
     def parse_warnings(cls, v):
         if isinstance(v, str):
@@ -177,22 +169,6 @@ class PatientResponse(PatientBase):
 
     class Config:
         from_attributes = True
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "full_name": "John Smith",
-                "age": 35,
-                "gender": "male",
-                "blood_type": "A+",
-                "condition": "Hypertension",
-                "severity": "medium",
-                "warnings": ["Allergy to penicillin"],
-                "symptom_flags": "High blood pressure",
-                "is_critical": False,
-                "created_at": "2023-01-01T00:00:00",
-                "updated_at": "2023-01-01T00:00:00"
-            }
-        }
 
 
 # Alias for backward compatibility
@@ -296,20 +272,3 @@ class ErrorResponse(BaseModel):
 
 class SuccessResponse(BaseModel):
     message: str = Field(..., example="Operation successful")
-
-
-class PatientCreate(BaseModel):
-    full_name: str = Field(..., min_length=2,
-                           max_length=100, example="John Smith")
-    age: conint(gt=0, lt=120) = Field(..., example=35)
-    gender: Literal["male", "female", "other"] = Field(..., example="male")
-    condition: str = Field(..., min_length=3, max_length=500, example="Fever")
-    severity: Literal["low", "medium", "high"] = Field(
-        "medium", example="medium")
-    warnings: List[str] = Field([], example=["None"])
-
-    @validator('full_name')
-    def validate_full_name(cls, v):
-        if any(char.isdigit() for char in v):
-            raise ValueError("Name cannot contain numbers")
-        return v.strip().title()

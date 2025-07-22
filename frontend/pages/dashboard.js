@@ -163,82 +163,82 @@ export default function DashboardPage() {
     }
 
     const handlePatientSubmit = async (e) => {
-    e.preventDefault();
+        e.preventDefault();
 
-    // Validate required fields
-    if (!newPatient.fullName || !newPatient.age || !newPatient.condition) {
-        toast.error('Name, age and condition are required');
-        return;
-    }
-
-    try {
-        const patientData = {
-            full_name: newPatient.fullName.trim(),
-            age: Number(newPatient.age),
-            gender: newPatient.gender || "male",
-            condition: newPatient.condition.trim(),
-            severity: newPatient.severity || "medium",
-            warnings: Array.isArray(newPatient.warnings)
-                ? newPatient.warnings
-                : String(newPatient.warnings || "").split(",").map(w => w.trim()),
-            allergies: String(newPatient.allergies || "").trim(),
-            symptoms: String(newPatient.symptoms || "").trim()
-        };
-
-        const response = await axios.post(
-            'https://care-chain.onrender.com/patients',
-            patientData,
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
-
-        // Success handling
-        setPatients(prev => [...prev, response.data]);
-        setShowAddPatientModal(false);
-        setNewPatient({
-            fullName: '',
-            age: '',
-            gender: 'male',
-            condition: '',
-            severity: 'medium',
-            warnings: [],
-            allergies: '',
-            symptoms: ''
-        });
-        toast.success('Patient added successfully!');
-
-    } catch (error) {
-        console.error('Error adding patient:', {
-            error: error.response?.data || error.message,
-            request: error.config
-        });
-
-        let errorMessage = 'Failed to add patient';
-        
-        if (error.response) {
-            if (error.response.status === 422) {
-                const details = error.response.data.detail;
-                if (Array.isArray(details)) {
-                    errorMessage = details.map(d => d.msg).join(', ');
-                } else {
-                    errorMessage = 'Validation failed';
-                }
-            } else if (error.response.status === 401) {
-                errorMessage = 'Session expired - please login again';
-                logout();
-                router.push('/login');
-            } else {
-                errorMessage = error.response.data?.detail || `Server error (${error.response.status})`;
-            }
+        // Validate required fields
+        if (!newPatient.fullName || !newPatient.age || !newPatient.condition) {
+            toast.error('Name, age and condition are required');
+            return;
         }
 
-        toast.error(errorMessage);
-    }
-};
+        try {
+            const patientData = {
+                full_name: newPatient.fullName.trim(),
+                age: Number(newPatient.age),
+                gender: newPatient.gender || "male",
+                condition: newPatient.condition.trim(),
+                severity: newPatient.severity || "medium",
+                warnings: Array.isArray(newPatient.warnings)
+                    ? newPatient.warnings
+                    : String(newPatient.warnings || "").split(",").map(w => w.trim()),
+                allergies: String(newPatient.allergies || "").trim(),
+                symptoms: String(newPatient.symptoms || "").trim()
+            };
+
+            const response = await axios.post(
+                'https://care-chain.onrender.com/patients',
+                patientData,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            // Success handling
+            setPatients(prev => [...prev, response.data]);
+            setShowAddPatientModal(false);
+            setNewPatient({
+                fullName: '',
+                age: '',
+                gender: 'male',
+                condition: '',
+                severity: 'medium',
+                warnings: [],
+                allergies: '',
+                symptoms: ''
+            });
+            toast.success('Patient added successfully!');
+
+        } catch (error) {
+            console.error('Error adding patient:', {
+                error: error.response?.data || error.message,
+                request: error.config
+            });
+
+            let errorMessage = 'Failed to add patient';
+
+            if (error.response) {
+                if (error.response.status === 422) {
+                    const details = error.response.data.detail;
+                    if (Array.isArray(details)) {
+                        errorMessage = details.map(d => d.msg).join(', ');
+                    } else {
+                        errorMessage = 'Validation failed';
+                    }
+                } else if (error.response.status === 401) {
+                    errorMessage = 'Session expired - please login again';
+                    logout();
+                    router.push('/login');
+                } else {
+                    errorMessage = error.response.data?.detail || `Server error (${error.response.status})`;
+                }
+            }
+
+            toast.error(errorMessage);
+        }
+    };
 
 
     const handleScanSuccess = (result) => {
@@ -250,53 +250,53 @@ export default function DashboardPage() {
     }
 
     const downloadQRCode = (patientId) => {
-  try {
-    console.log(`Attempting to download QR code for patient ${patientId}`);
-    
-    // Get the SVG element
-    const svgElement = document.getElementById(`qrcode-${patientId}`)?.querySelector('svg');
-    if (!svgElement) {
-      console.error(`SVG element not found for patient ${patientId}`);
-      return;
-    }
+        try {
+            console.log(`Attempting to download QR code for patient ${patientId}`);
 
-    // Serialize the SVG
-    const svgData = new XMLSerializer().serializeToString(svgElement);
-    
-    // Create canvas
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    const img = new window.Image();
+            // Get the SVG element
+            const svgElement = document.getElementById(`qrcode-${patientId}`)?.querySelector('svg');
+            if (!svgElement) {
+                console.error(`SVG element not found for patient ${patientId}`);
+                return;
+            }
 
-    img.onload = () => {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-      
-      // Create download link
-      const pngUrl = canvas.toDataURL("image/png");
-      const downloadLink = document.createElement("a");
-      downloadLink.download = `patient-${patientId}-qrcode.png`;
-      downloadLink.href = pngUrl;
-      
-      // Required for Firefox
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      document.body.removeChild(downloadLink);
+            // Serialize the SVG
+            const svgData = new XMLSerializer().serializeToString(svgElement);
+
+            // Create canvas
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            const img = new window.Image();
+
+            img.onload = () => {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+
+                // Create download link
+                const pngUrl = canvas.toDataURL("image/png");
+                const downloadLink = document.createElement("a");
+                downloadLink.download = `patient-${patientId}-qrcode.png`;
+                downloadLink.href = pngUrl;
+
+                // Required for Firefox
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+            };
+
+            img.onerror = (e) => {
+                console.error('Error loading image:', e);
+            };
+
+            // Properly encode SVG
+            const svgBase64 = btoa(unescape(encodeURIComponent(svgData)));
+            img.src = `data:image/svg+xml;base64,${svgBase64}`;
+
+        } catch (error) {
+            console.error('Error in downloadQRCode:', error);
+        }
     };
-
-    img.onerror = (e) => {
-      console.error('Error loading image:', e);
-    };
-
-    // Properly encode SVG
-    const svgBase64 = btoa(unescape(encodeURIComponent(svgData)));
-    img.src = `data:image/svg+xml;base64,${svgBase64}`;
-    
-  } catch (error) {
-    console.error('Error in downloadQRCode:', error);
-  }
-};
     if (isLoading || !isAuthenticated) {
         return (
             <div className="min-h-screen flex items-center justify-center">

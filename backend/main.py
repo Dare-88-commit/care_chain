@@ -15,16 +15,18 @@ from typing import Optional, List
 import os
 from dotenv import load_dotenv
 from functools import wraps
-
+import json
 # Load environment variables
 load_dotenv()
 
 # Initialize app
 app = FastAPI(title="CareChain API", version="1.0.0")
 
+
 @app.on_event("startup")
 def on_startup():
     models.Base.metadata.create_all(bind=engine)
+
 
 # CORS Configuration
 app.add_middleware(
@@ -32,6 +34,7 @@ app.add_middleware(
     allow_origins=[
         "https://care-chain.vercel.app",
         "http://localhost:3000"  # For development
+        # TODO: Restrict to deployed frontend URL in production
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -41,11 +44,14 @@ app.add_middleware(
 # Security Configuration
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 # Database Dependency
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -54,27 +60,38 @@ def get_db():
         db.close()
 
 # Password Helpers
+
+
 def verify_password(plain_password: str, hashed_password: str):
     return pwd_context.verify(plain_password, hashed_password)
 
+
 def get_password_hash(password: str):
-    return pwd_context.hash(password)
+    return pwd_context.hash(password, rounds=12)
 
 # Password Validation
+
+
 def validate_password(password: str):
     if len(password) < 8:
-        raise ValueError("Password must be at least 8 characters long")
+        raise HTTPException(
+            status_code=400, detail="Password must be at least 8 characters long")
     if not any(c.isdigit() for c in password):
-        raise ValueError("Password must contain at least one digit")
+        raise HTTPException(
+            status_code=400, detail="Password must contain at least one digit")
     if not any(c.isalpha() for c in password):
-        raise ValueError("Password must contain at least one letter")
+        raise HTTPException(
+            status_code=400, detail="Password must contain at least one letter")
 
 # JWT Token Handling
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
@@ -87,6 +104,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         email: str = payload.get("sub")
         if not email:
             raise credentials_exception
+        exp: int = payload.get("exp")
+        if datetime.utcnow().timestamp() > exp:
+            raise HTTPException(status_code=401, detail="Token expired")
     except JWTError:
         raise credentials_exception
 
@@ -96,6 +116,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     return user
 
 # Role-Based Access Control
+
+
 def requires_role(required_role: str):
     def decorator(route_func):
         @wraps(route_func)
@@ -110,29 +132,32 @@ def requires_role(required_role: str):
     return decorator
 
 # Authentication Routes
+
+
 @app.post("/auth/signup", response_model=schemas.User)
 def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db_user = crud.get_user_by_email(db, email=user.email)
     if db_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"message": "Email already registered", "code": "email_exists"}
+            detail={"message": "Email already registered",
+                    "code": "email_exists"}
         )
 
     try:
+        validate_password(user.password)
         hashed_password = get_password_hash(user.password)
-        created_user = crud.create_user(db=db, user=user, hashed_password=hashed_password)
+        created_user = crud.create_user(
+            db=db, user=user, hashed_password=hashed_password)
         return created_user
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"message": str(e), "code": "validation_error"}
-        )
+    except HTTPException as e:
+        raise e
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": "Registration failed", "code": "server_error"}
         )
+
 
 @app.post("/auth/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -160,8 +185,11 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     }
 
 # Patient Routes
+
+
 @app.post("/patients", response_model=schemas.Patient)
-def create_patient(
+@requires_role("doctor")
+async def create_patient(
     patient: schemas.PatientCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
@@ -173,6 +201,7 @@ def create_patient(
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
 @app.get("/patients", response_model=List[schemas.Patient])
 def read_patients(
     skip: int = 0,
@@ -183,6 +212,8 @@ def read_patients(
     return crud.get_patients(db, skip=skip, limit=limit)
 
 # QR Code Generation
+
+
 @app.get("/patients/{patient_id}/qrcode")
 def generate_qr_code(
     patient_id: int,
@@ -203,21 +234,42 @@ def generate_qr_code(
     patient.qr_token = qr_token
     db.commit()
 
-    qr = qrcode.make(qr_data)
+    qr = qrcode.make(json.dumps(qr_data))
     buffer = io.BytesIO()
     qr.save(buffer, format="PNG")
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="image/png")
 
 # QR Token Validation
+
+
 @app.get("/patients/qr/{token}", response_model=schemas.Patient)
 def read_patient_via_qr(token: str, db: Session = Depends(get_db)):
-    patient = db.query(models.Patient).filter(models.Patient.qr_token == token).first()
+    patient = db.query(models.Patient).filter(
+        models.Patient.qr_token == token).first()
     if not patient:
-        raise HTTPException(status_code=404, detail="Invalid or expired QR token")
+        raise HTTPException(
+            status_code=404, detail="Invalid or expired QR token")
     return patient
 
+# PATIENT Access Logging
+
+
+@app.get("/patients/{patient_id}", response_model=schemas.Patient)
+def read_patient(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    patient = crud.get_patient(db, patient_id=patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return patient
+
+
 # Access Logging Middleware
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     response = await call_next(request)
@@ -250,9 +302,12 @@ async def log_requests(request: Request, call_next):
     return response
 
 # Health Check & Root
+
+
 @app.get("/health")
 def health_check():
     return {"status": "OK", "timestamp": datetime.utcnow()}
+
 
 @app.get("/")
 def root():
@@ -263,6 +318,8 @@ def root():
     }
 
 # Token Verification
+
+
 @app.get("/auth/verify")
 async def verify_token(current_user: models.User = Depends(get_current_user)):
     return {
@@ -273,6 +330,7 @@ async def verify_token(current_user: models.User = Depends(get_current_user)):
             "role": current_user.role
         }
     }
+
 
 @app.get("/auth/me", response_model=schemas.User)
 async def get_current_user_data(current_user: models.User = Depends(get_current_user)):
