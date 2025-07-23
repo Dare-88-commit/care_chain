@@ -1,8 +1,7 @@
-from pydantic import BaseModel, Field, validator, EmailStr, conint, constr
+from pydantic import BaseModel, Field, validator, EmailStr, conint
 from typing import Optional, List, Literal
 from datetime import datetime
 from enum import Enum
-import re
 
 # --------------------------
 # Password Validation Helper
@@ -10,21 +9,19 @@ import re
 
 
 def validate_password(password: str) -> str:
-    """Enhanced password validation with regex"""
-    if len(password) < 10:
-        raise ValueError("Password must be at least 10 characters")
-    if not re.search(r"[A-Z]", password):
+    """Manual password validation"""
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters")
+    if not any(c.isupper() for c in password):
         raise ValueError("Password must contain at least one uppercase letter")
-    if not re.search(r"[a-z]", password):
+    if not any(c.islower() for c in password):
         raise ValueError("Password must contain at least one lowercase letter")
-    if not re.search(r"\d", password):
+    if not any(c.isdigit() for c in password):
         raise ValueError("Password must contain at least one digit")
-    if not re.search(r"[@$!%*?&#]", password):
+    if not any(c in "@$!%*?&" for c in password):
         raise ValueError(
-            "Password must contain at least one special character (@$!%*?&#)")
-    if re.search(r"(.)\1{2,}", password):
-        raise ValueError(
-            "Password cannot contain repeating characters (aaa, 111 etc.)")
+            "Password must contain at least one special character (@$!%*?&)"
+        )
     return password
 
 # --------------------------
@@ -36,7 +33,6 @@ class UserRole(str, Enum):
     ADMIN = "admin"
     DOCTOR = "doctor"
     NURSE = "nurse"
-    STAFF = "staff"
 
 
 class BloodType(str, Enum):
@@ -48,7 +44,6 @@ class BloodType(str, Enum):
     AB_NEG = "AB-"
     O_POS = "O+"
     O_NEG = "O-"
-    UNKNOWN = "unknown"
 
 
 class SeverityLevel(str, Enum):
@@ -56,49 +51,33 @@ class SeverityLevel(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
-    EMERGENCY = "emergency"
 
 
 class AppointmentStatus(str, Enum):
     SCHEDULED = "scheduled"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
-    RESCHEDULED = "rescheduled"
-    NO_SHOW = "no_show"
 
 # --------------------------
 # Authentication Schemas
 # --------------------------
 
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-    expires_in: int
-
-
-class TokenData(BaseModel):
-    email: Optional[str] = None
-    role: Optional[str] = None
-
-
 class UserBase(BaseModel):
-    email: EmailStr = Field(..., example="user@carechain.org", max_length=255)
+    email: EmailStr = Field(..., example="user@carechain.org")
     role: UserRole = Field(default=UserRole.NURSE)
 
 
 class UserCreate(UserBase):
-    name: constr(strip_whitespace=True, min_length=2,
-                 max_length=50) = Field(..., example="Dr. Jane Doe")
-    password: str = Field(..., min_length=10,
-                          max_length=128, example="SecurePass123!#")
-    confirm_password: str = Field(..., example="SecurePass123!#")
+    name: str = Field(..., min_length=2, max_length=50, example="Dr. Jane Doe")
+    password: str = Field(..., min_length=8, max_length=64,
+                          example="SecurePass123!")
+    confirm_password: str = Field(..., example="SecurePass123!")
 
     @validator('name')
     def validate_name(cls, v):
-        if not re.match(r"^[a-zA-Z\s\-'.]+$", v):
-            raise ValueError(
-                "Name must contain only letters, spaces, hyphens, apostrophes and periods")
+        if not v.replace(" ", "").isalpha():
+            raise ValueError("Name must contain only letters and spaces")
         return v.strip().title()
 
     @validator('password')
@@ -114,7 +93,7 @@ class UserCreate(UserBase):
 
 class UserLogin(BaseModel):
     email: EmailStr = Field(..., example="user@carechain.org")
-    password: str = Field(..., example="SecurePass123!#")
+    password: str = Field(..., example="SecurePass123!")
 
 
 class UserResponse(UserBase):
@@ -123,23 +102,12 @@ class UserResponse(UserBase):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-    last_login: Optional[datetime]
 
     class Config:
         from_attributes = True
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "email": "doctor@carechain.org",
-                "name": "Dr. Smith",
-                "role": "doctor",
-                "is_active": True,
-                "created_at": "2023-01-01T00:00:00",
-                "updated_at": "2023-01-01T00:00:00"
-            }
-        }
 
 
+# Alias for backward compatibility
 User = UserResponse
 
 # --------------------------
@@ -148,91 +116,62 @@ User = UserResponse
 
 
 class PatientBase(BaseModel):
-    full_name: constr(strip_whitespace=True, min_length=2,
-                      max_length=100) = Field(..., example="John Smith")
+    full_name: str = Field(..., min_length=2,
+                           max_length=100, example="John Smith")
     age: conint(gt=0, lt=120) = Field(..., example=35)
-    gender: Literal["male", "female", "other",
-                    "unknown"] = Field(..., example="male")
+    gender: Literal["male", "female"] = Field(..., example="male")
     blood_type: Optional[BloodType] = Field(None, example="A+")
-    condition: constr(min_length=3, max_length=500) = Field(...,
-                                                            example="Hypertension")
+    condition: str = Field(..., min_length=3,
+                           max_length=500, example="Hypertension")
     severity: SeverityLevel = Field(default=SeverityLevel.MEDIUM)
-    warnings: List[constr(max_length=100)] = Field(
-        [], example=["Allergy to penicillin"])
+    warnings: List[str] = Field([], example=["Allergy to penicillin"])
 
 
 class PatientCreate(PatientBase):
-    allergies: Optional[constr(max_length=500)] = None
-    symptoms: Optional[constr(max_length=1000)] = None
-    emergency_contact: Optional[constr(max_length=100)] = None
-    insurance_info: Optional[constr(max_length=100)] = None
+    gender: Literal["male", "female", "other"] = Field(..., example="male")
+    allergies: Optional[str] = None
+    symptoms: Optional[str] = None
 
     @validator('full_name')
     def validate_full_name(cls, v):
         if any(char.isdigit() for char in v):
             raise ValueError("Name cannot contain numbers")
-        if not re.match(r"^[a-zA-Z\s\-'.]+$", v):
-            raise ValueError("Name contains invalid characters")
         return v.strip().title()
-
-    @validator('warnings')
-    def validate_warnings(cls, v):
-        return [w.strip() for w in v if w.strip()]
 
 
 class PatientUpdate(BaseModel):
-    full_name: Optional[constr(
-        strip_whitespace=True, min_length=2, max_length=100)] = None
-    age: Optional[conint(gt=0, lt=120)] = None
-    gender: Optional[Literal["male", "female", "other", "unknown"]] = None
-    blood_type: Optional[BloodType] = None
-    condition: Optional[constr(min_length=3, max_length=500)] = None
-    severity: Optional[SeverityLevel] = None
-    warnings: Optional[List[constr(max_length=100)]] = None
-    allergies: Optional[constr(max_length=500)] = None
-    symptoms: Optional[constr(max_length=1000)] = None
-    emergency_contact: Optional[constr(max_length=100)] = None
-    insurance_info: Optional[constr(max_length=100)] = None
+    full_name: Optional[str] = Field(None, min_length=2, max_length=100)
+    age: Optional[conint(gt=0, lt=120)]
+    gender: Optional[Literal["male", "female", "other"]]
+    blood_type: Optional[BloodType]
+    condition: Optional[str] = Field(None, min_length=3, max_length=500)
+    severity: Optional[SeverityLevel]
+    warnings: Optional[List[str]]
+    allergies: Optional[str] = Field(None, max_length=500)
+    symptoms: Optional[str] = Field(None, max_length=1000)
 
 
 class PatientResponse(PatientBase):
     id: int
     creator_id: int
+    symptom_flags: Optional[str]
     is_critical: bool
     created_at: datetime
     updated_at: datetime
-    allergies: Optional[str]
-    symptoms: Optional[str]
-    emergency_contact: Optional[str]
-    insurance_info: Optional[str]
 
     @validator("warnings", pre=True)
     def parse_warnings(cls, v):
         if isinstance(v, str):
             if v.strip() == "":
                 return []
-            return [w.strip() for w in v.split(",") if w.strip()]
+            return [w.strip() for w in v.split(",")]
         return v
 
     class Config:
         from_attributes = True
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "full_name": "John Smith",
-                "age": 35,
-                "gender": "male",
-                "blood_type": "A+",
-                "condition": "Hypertension",
-                "severity": "medium",
-                "warnings": ["Allergy to penicillin"],
-                "is_critical": False,
-                "created_at": "2023-01-01T00:00:00",
-                "updated_at": "2023-01-01T00:00:00"
-            }
-        }
 
 
+# Alias for backward compatibility
 Patient = PatientResponse
 
 # --------------------------
@@ -241,35 +180,24 @@ Patient = PatientResponse
 
 
 class RecordBase(BaseModel):
-    diagnosis: constr(min_length=3, max_length=500) = Field(...,
-                                                            example="Stage 2 Hypertension")
-    treatment: Optional[constr(max_length=1000)] = Field(
-        None, example="Lisinopril 10mg daily")
-    notes: Optional[constr(max_length=2000)] = Field(
-        None, example="Patient reports occasional dizziness")
-    symptoms: Optional[constr(max_length=1000)] = Field(
-        None, example="Headache, Fatigue")
+    diagnosis: str = Field(..., min_length=3, max_length=500,
+                           example="Stage 2 Hypertension")
+    treatment: Optional[str] = Field(
+        None, max_length=1000, example="Lisinopril 10mg daily")
+    notes: Optional[str] = Field(
+        None, max_length=2000, example="Patient reports occasional dizziness")
+    symptoms: Optional[str] = Field(
+        None, max_length=1000, example="Headache, Fatigue")
     severity: SeverityLevel = Field(default=SeverityLevel.MEDIUM)
-    prescription: Optional[constr(max_length=1000)] = None
 
 
 class RecordCreate(RecordBase):
     patient_id: int = Field(..., example=1)
 
 
-class RecordUpdate(BaseModel):
-    diagnosis: Optional[constr(min_length=3, max_length=500)] = None
-    treatment: Optional[constr(max_length=1000)] = None
-    notes: Optional[constr(max_length=2000)] = None
-    symptoms: Optional[constr(max_length=1000)] = None
-    severity: Optional[SeverityLevel] = None
-    prescription: Optional[constr(max_length=1000)] = None
-
-
 class RecordResponse(RecordBase):
     id: int
     patient_id: int
-    doctor_id: int
     created_at: datetime
     updated_at: datetime
 
@@ -283,24 +211,14 @@ class RecordResponse(RecordBase):
 
 class AppointmentBase(BaseModel):
     date_time: datetime = Field(..., example="2023-06-15T14:30:00")
-    purpose: Optional[constr(max_length=500)] = Field(
-        None, example="Follow-up")
+    purpose: Optional[str] = Field(None, max_length=500, example="Follow-up")
     status: AppointmentStatus = Field(default=AppointmentStatus.SCHEDULED)
-    notes: Optional[constr(max_length=2000)] = None
-    duration_minutes: conint(gt=0, le=240) = Field(30, example=30)
+    notes: Optional[str] = Field(None, max_length=2000)
 
 
 class AppointmentCreate(AppointmentBase):
     patient_id: int = Field(..., example=1)
     doctor_id: int = Field(..., example=2)
-
-
-class AppointmentUpdate(BaseModel):
-    date_time: Optional[datetime] = None
-    purpose: Optional[constr(max_length=500)] = None
-    status: Optional[AppointmentStatus] = None
-    notes: Optional[constr(max_length=2000)] = None
-    duration_minutes: Optional[conint(gt=0, le=240)] = None
 
 
 class AppointmentResponse(AppointmentBase):
@@ -322,7 +240,6 @@ class QRCodeData(BaseModel):
     patient_id: int
     token: str
     exp: datetime
-    access_level: Literal["read", "write"] = "read"
 
 
 class PatientSync(BaseModel):
@@ -334,7 +251,6 @@ class PatientSync(BaseModel):
     allergies: Optional[str]
     symptoms: Optional[str]
     updated_at: datetime
-    sync_token: str
 
 # --------------------------
 # Response Wrappers
@@ -352,30 +268,7 @@ class UserWithPatients(UserResponse):
 
 class ErrorResponse(BaseModel):
     detail: str = Field(..., example="Error message")
-    code: Optional[str] = Field(None, example="invalid_input")
-    field: Optional[str] = Field(None, example="password")
 
 
 class SuccessResponse(BaseModel):
     message: str = Field(..., example="Operation successful")
-    data: Optional[dict] = None
-
-
-class PaginatedResponse(BaseModel):
-    items: List
-    total: int
-    page: int
-    pages: int
-
-# --------------------------
-# System Health Schemas
-# --------------------------
-
-
-class HealthCheck(BaseModel):
-    status: str
-    database: bool
-    cache: bool
-    storage: bool
-    version: str
-    timestamp: datetime

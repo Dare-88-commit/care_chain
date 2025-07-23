@@ -1,5 +1,4 @@
-# Only import, do not redefine get_db!
-from backend.database import SessionLocal, engine, get_db
+from backend.database import SessionLocal, engine
 from backend import models, schemas, crud
 from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,6 +48,16 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(
     os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+# Database Dependency
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # Password Helpers
 
@@ -182,7 +191,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @requires_role("doctor")
 async def create_patient(
     patient: schemas.PatientCreate,
-    db: Session = Depends(get_db),  # This is correct!
+    db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     try:
@@ -266,9 +275,7 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
 
     if request.url.path.startswith("/patients/") and request.method in ["GET", "POST", "PUT", "DELETE"]:
-        db = SessionLocal  # Correct
-        # db = get_db()      # WRONG
-        # db = next(get_db()) # WRONG
+        db = SessionLocal()
         try:
             auth = request.headers.get("authorization")
             if auth:
