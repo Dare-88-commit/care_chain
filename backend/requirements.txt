@@ -1,39 +1,56 @@
-# Core Requirements
-gunicorn==21.2.0
+# Core Requirements (pinned to stable versions)
 fastapi==0.109.1
 uvicorn==0.27.0
+gunicorn==21.2.0
 python-dotenv==1.0.0
 python-multipart==0.0.6
 
-# Database
-sqlalchemy==2.0.25  # Updated to match your first list (2.0.23 → 2.0.25)
+# Database (PostgreSQL stack)
+sqlalchemy==2.0.25
 psycopg2-binary==2.9.9
 alembic==1.13.1
+asyncpg==0.29.0  # Added for async PostgreSQL support
 
-# Authentication & Security
-passlib==1.7.4
-python-jose==3.3.0
+# Security & Authentication
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
 bcrypt==4.0.1
 cryptography==42.0.2
+pyjwt==2.8.0  # Explicit JWT dependency
+
+# Data Validation & Serialization
+pydantic==2.6.1
+pydantic-settings==2.1.0
+email-validator==2.0.0.post2
 
 # QR Code Generation
-qrcode==7.4.2
+qrcode[pil]==7.4.2
 pillow==10.1.0
-
-# Data Validation
-pydantic==2.6.1  # Updated to match your first list (2.5.3 → 2.6.1)
-pydantic-settings==2.1.0
-email-validator>=2.0.0  # Flexible to avoid post2 conflict
 
 # Date/Time Handling
 python-dateutil==2.8.2
+pytz==2023.3.post1  # Added for timezone support
 
-# CORS (using FastAPI's built-in middleware instead of fastapi-middleware)
-# No extra package needed! Just import from `fastapi.middleware.cors`.
-
-# Logging
+# Logging & Monitoring
 loguru==0.7.2
+structlog==23.2.0  # Added for structured logging
 
-# Development (optional)
+# Async & Performance
+anyio==4.2.0
+httptools==0.6.0
+uvloop==0.19.0  # Added for better async performance
+
+# Development & Testing (optional)
 pytest==7.4.3
+pytest-asyncio==0.23.5
 httpx==0.26.0
+factory-boy==3.3.0  # Added for test data generation
+pytest-cov==4.1.0  # Added for test coverage
+
+# Documentation (optional)
+mkdocs==1.5.3
+mkdocs-material==9.5.3
+
+# Production (optional)
+sentry-sdk==1.40.0  # Added for error monitoring
+prometheus-client==0.19.0  # Added for metrics
