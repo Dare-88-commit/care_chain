@@ -56,20 +56,14 @@ SessionLocal = scoped_session(
 Base = declarative_base()
 
 
-@contextmanager
 def get_db():
     """Provide a transactional scope around a series of operations."""
     db = SessionLocal()
     try:
         yield db
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Database error occurred: {str(e)}")
-        raise
     finally:
         db.close()
-        SessionLocal.remove()  # Important for scoped sessions
+        SessionLocal.remove()
 
 
 def initialize_database():
