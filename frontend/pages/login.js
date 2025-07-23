@@ -54,7 +54,7 @@ export default function LoginPage() {
             formData.append('username', form.email)
             formData.append('password', form.password)
 
-            const response = await fetch('https://care-chain.onrender.com/auth/login', {
+            const response = await fetch('http://localhost:8000/auth/login', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',

@@ -9,6 +9,7 @@ from contextlib import contextmanager
 
 # Configure logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 # Load environment variables
 load_dotenv()
@@ -68,6 +69,7 @@ def get_db():
         raise
     finally:
         db.close()
+        SessionLocal.remove()  # Important for scoped sessions
 
 
 def initialize_database():
