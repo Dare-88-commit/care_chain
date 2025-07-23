@@ -306,35 +306,37 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
 
     if request.url.path.startswith("/patients/") and request.method in ["GET", "POST", "PUT", "DELETE"]:
-        async with get_db() as db:
-            try:
-                auth = request.headers.get("authorization")
-                if auth and auth.startswith("Bearer "):
-                    token = auth[7:]
-                    try:
-                        payload = jwt.decode(
-                            token, SECRET_KEY, algorithms=[ALGORITHM])
-                        user = crud.get_user_by_email(
-                            db, email=payload.get("sub"))
+        db_gen = get_db()
+        db = next(db_gen)
+        try:
+            auth = request.headers.get("authorization")
+            if auth and auth.startswith("Bearer "):
+                token = auth[7:]
+                try:
+                    payload = jwt.decode(
+                        token, SECRET_KEY, algorithms=[ALGORITHM])
+                    user = crud.get_user_by_email(db, email=payload.get("sub"))
 
-                        if user:
-                            patient_id = request.path_params.get("patient_id")
-                            if patient_id:
-                                log = models.AccessLog(
-                                    user_id=user.id,
-                                    patient_id=int(patient_id),
-                                    action=request.method,
-                                    ip_address=request.client.host,
-                                    user_agent=request.headers.get(
-                                        "user-agent", ""),
-                                    endpoint=request.url.path
-                                )
-                                db.add(log)
-                                db.commit()
-                    except JWTError:
-                        pass
-            except Exception as e:
-                logger.error(f"Failed to log access: {str(e)}")
+                    if user:
+                        patient_id = request.path_params.get("patient_id")
+                        if patient_id:
+                            log = models.AccessLog(
+                                user_id=user.id,
+                                patient_id=int(patient_id),
+                                action=request.method,
+                                ip_address=request.client.host,
+                                user_agent=request.headers.get(
+                                    "user-agent", ""),
+                                endpoint=request.url.path
+                            )
+                            db.add(log)
+                            db.commit()
+                except JWTError:
+                    pass
+        except Exception as e:
+            logger.error(f"Failed to log access: {str(e)}")
+        finally:
+            db_gen.close()
 
     return response
 
