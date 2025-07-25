@@ -26,15 +26,16 @@ POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
 POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "3600"))
 
 # Create engine with connection pooling
+
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    poolclass=QueuePool,
     pool_size=POOL_SIZE,
     max_overflow=MAX_OVERFLOW,
     pool_timeout=POOL_TIMEOUT,
     pool_recycle=POOL_RECYCLE,
     echo=bool(os.getenv("SQL_ECHO", "False").lower() == "true"),
     connect_args={
+        "sslmode": "require",
         "connect_timeout": 5,
         "keepalives": 1,
         "keepalives_idle": 30,
@@ -42,6 +43,7 @@ engine = create_engine(
         "keepalives_count": 5
     }
 )
+
 
 # Session factory with scoped sessions for thread safety
 SessionLocal = scoped_session(

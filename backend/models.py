@@ -45,10 +45,11 @@ class AppointmentStatus(str, enum.Enum):
 
 
 class Gender(str, enum.Enum):
-    MALE = "male"
-    FEMALE = "female"
-    OTHER = "other"
-    UNKNOWN = "unknown"
+    MALE = "MALE"
+    FEMALE = "FEMALE"
+    OTHER = "OTHER"
+    UNKNOWN = "UNKNOWN"
+
 
 # Models
 
@@ -143,6 +144,12 @@ class Patient(Base):
         if age < 0 or age > 120:
             raise ValueError("Age must be between 0-120")
         return age
+
+    @validates('gender')
+    def validate_gender(self, key, gender):
+        if gender:
+            return gender.upper()
+        return gender
 
     def generate_qr_token(self):
         self.qr_token = str(uuid4())

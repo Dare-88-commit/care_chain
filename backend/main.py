@@ -290,7 +290,7 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
 
     if request.url.path.startswith("/patients/") and request.method in ["GET", "POST", "PUT", "DELETE"]:
-        db = SessionLocal  # Correct
+        db = SessionLocal()  # Correct
         # db = get_db()      # WRONG
         # db = next(get_db()) # WRONG
         try:

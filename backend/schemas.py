@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, validator, EmailStr, conint, constr
 from typing import Optional, List, Literal
 from datetime import datetime
 from enum import Enum
+from .models import Gender
 import re
 
 # --------------------------
@@ -151,8 +152,7 @@ class PatientBase(BaseModel):
     full_name: constr(strip_whitespace=True, min_length=2,
                       max_length=100) = Field(..., example="John Smith")
     age: conint(gt=0, lt=120) = Field(..., example=35)
-    gender: Literal["male", "female", "other",
-                    "unknown"] = Field(..., example="male")
+    gender: Gender = Field(..., example="male")  # Changed here
     blood_type: Optional[BloodType] = Field(None, example="A+")
     condition: constr(min_length=3, max_length=500) = Field(...,
                                                             example="Hypertension")
