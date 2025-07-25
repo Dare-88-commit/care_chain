@@ -202,6 +202,30 @@ def read_patients(
 ):
     return crud.get_patients(db, skip=skip, limit=limit)
 
+
+@app.put("/patients/{patient_id}", response_model=schemas.Patient)
+@requires_role("doctor")
+async def update_patient(
+    patient_id: int,
+    patient: schemas.PatientUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    return crud.update_patient(db, patient_id, patient)
+
+
+@app.delete("/patients/{patient_id}", status_code=204)
+@requires_role("doctor")
+async def delete_patient(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    deleted = crud.delete_patient(db, patient_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return {"detail": "Patient deleted"}
+
 # QR Code Generation
 
 
