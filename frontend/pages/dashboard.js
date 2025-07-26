@@ -703,30 +703,30 @@ export default function DashboardPage() {
     }
 
     function PatientsPage({ patients, onScanClick, downloadQRCode, token }) {
-        const [selectedPatient, setSelectedPatient] = useState(null)
-        const [qrCodeData, setQrCodeData] = useState(null)
-        const [searchTerm, setSearchTerm] = useState('')
+        const [selectedPatient, setSelectedPatient] = useState(null);
+        const [qrCodeData, setQrCodeData] = useState(null);
+        const [searchTerm, setSearchTerm] = useState('');
 
         const severityColors = {
             high: "bg-red-100 text-red-800",
             medium: "bg-yellow-100 text-yellow-800",
             low: "bg-green-100 text-green-800",
             critical: "bg-purple-100 text-purple-800"
-        }
+        };
 
         const fetchQRCode = async (patientId) => {
             try {
                 const response = await axios.get(
                     `https://care-chain.onrender.com/patients/${patientId}/qrcode`,
                     { headers: { Authorization: `Bearer ${token}` } }
-                )
-                setQrCodeData(response.data.qr_code)
-                setSelectedPatient(patientId)
+                );
+                setQrCodeData(response.data.qr_code);
+                setSelectedPatient(patientId);
             } catch (error) {
-                console.error('Error fetching QR code:', error)
-                toast.error('Failed to generate QR code')
+                console.error('Error fetching QR code:', error);
+                toast.error('Failed to generate QR code');
             }
-        }
+        };
 
         const filteredPatients = patients.filter((patient) => {
             const name = patient.full_name || patient.fullName || '';
@@ -753,7 +753,9 @@ export default function DashboardPage() {
                         </button>
                     </div>
                 </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+                    {/* Always render patients if they exist */}
                     {filteredPatients.map((patient) => (
                         <div key={patient.id} className="bg-white p-3 md:p-4 rounded-xl shadow border border-gray-100 space-y-3 md:space-y-4">
                             <div>
@@ -768,16 +770,9 @@ export default function DashboardPage() {
                                 )}
                             </div>
                             <div className="flex flex-col space-y-2">
-                                <button
-                                    onClick={() => fetchQRCode(patient.id)}
-                                    className="w-full bg-blue-600 text-white py-1 md:py-2 rounded-lg hover:bg-blue-700 transition text-sm md:text-base"
-                                    disabled={patient.offline}
-                                >
-                                    {patient.offline ? 'Generate when online' : 'Generate QR Code'}
-                                </button>
                                 <div id={`qrcode-${patient.id}`} className="flex justify-center">
                                     <QRCode
-                                        value={`http://localhost:3000/patients/${patient.id}`}
+                                        value={`https://care-chain.vercel.app/patients/${patient.id}`}
                                         size={128}
                                         bgColor="#ffffff"
                                         fgColor="#000000"
@@ -793,45 +788,53 @@ export default function DashboardPage() {
                             </div>
                         </div>
                     ))}
-                </div>
 
-                {qrCodeData && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-                        <div className="bg-white p-4 md:p-6 rounded-xl w-full max-w-xs sm:max-w-sm md:max-w-md mx-4">
-                            <h2 className="text-lg md:text-xl font-bold mb-3 md:mb-4">Patient QR Code</h2>
-                            <div className="flex flex-col items-center space-y-3 md:space-y-4">
-                                <img
-                                    src={`data:image/png;base64,${qrCodeData}`}
-                                    alt="Patient QR Code"
-                                    className="w-32 h-32 md:w-48 md:h-48"
-                                />
-                                <div className="flex space-x-2 md:space-x-3">
-                                    <button
-                                        onClick={() => {
-                                            const link = document.createElement('a')
-                                            link.href = `data:image/png;base64,${qrCodeData}`
-                                            link.download = `patient-${selectedPatient}-qrcode.png`
-                                            link.click()
-                                        }}
-                                        className="bg-blue-600 text-white px-3 md:px-4 py-1 md:py-2 rounded-lg hover:bg-blue-700 transition text-sm md:text-base"
-                                    >
-                                        Download
-                                    </button>
-                                    <button
-                                        onClick={() => setQrCodeData(null)}
-                                        className="bg-gray-300 text-gray-800 px-3 md:px-4 py-1 md:py-2 rounded-lg hover:bg-gray-400 transition text-sm md:text-base"
-                                    >
-                                        Close
-                                    </button>
-                                </div>
+                    {/* Show empty state only if no patients exist at all */}
+                    {patients.length === 0 && (
+                        <div className="col-span-3 text-center py-12">
+                            <div className="mx-auto w-40 h-40 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
                             </div>
+                            <h3 className="text-lg font-medium text-gray-700">
+                                No patients registered yet
+                            </h3>
+                            <p className="mt-1 text-gray-500">
+                                Add your first patient to get started
+                            </p>
+                            <button
+                                onClick={() => setShowAddPatientModal(true)}
+                                className="mt-6 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="-ml-1 mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                                Add Patient
+                            </button>
                         </div>
-                    </div>
-                )}
-            </div>
-        )
-    }
+                    )}
 
+                    {/* Show search-specific empty state */}
+                    {patients.length > 0 && filteredPatients.length === 0 && (
+                        <div className="col-span-3 text-center py-12">
+                            <div className="mx-auto w-40 h-40 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                            </div>
+                            <h3 className="text-lg font-medium text-gray-700">
+                                No patients found
+                            </h3>
+                            <p className="mt-1 text-gray-500">
+                                Try a different search term
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
     function QRScannerPage({ onScanSuccess }) {
         const [scanResult, setScanResult] = useState(null)
 
